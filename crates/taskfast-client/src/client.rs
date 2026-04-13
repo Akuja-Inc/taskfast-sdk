@@ -118,6 +118,40 @@ impl TaskFastClient {
     {
         with_backoff(self.policy, op).await
     }
+
+    /// Upload a file artifact to `POST /tasks/{task_id}/artifacts`.
+    ///
+    /// Hand-rolled because progenitor's default templates skip `multipart/
+    /// form-data` endpoints. We reuse the inner reqwest::Client (same auth
+    /// headers, same timeouts) and funnel non-2xx responses through the
+    /// same `classify_response` used for generated methods — so upload
+    /// errors map to the same `Error` variants as every other call.
+    pub async fn upload_artifact(
+        &self,
+        task_id: &uuid::Uuid,
+        filename: String,
+        content_type: String,
+        bytes: Vec<u8>,
+    ) -> Result<api::types::Artifact> {
+        let url = format!("{}/tasks/{}/artifacts", self.inner.baseurl(), task_id);
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(filename)
+            .mime_str(&content_type)
+            .map_err(|e| Error::Server(format!("invalid content-type: {e}")))?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let resp = self
+            .inner
+            .client()
+            .post(url)
+            .multipart(form)
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            Ok(resp.json::<api::types::Artifact>().await?)
+        } else {
+            Err(classify_response(resp).await)
+        }
+    }
 }
 
 /// Translate a progenitor [`api::Error<()>`] into a typed [`Error`].

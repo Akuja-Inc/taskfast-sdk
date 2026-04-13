@@ -3,11 +3,13 @@
 //! Each test stands up a wiremock server, drives `cmd::task::run`
 //! directly, and asserts on the JSON envelope shape.
 
+use std::io::Write;
+
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::task::{Command, GetArgs, ListArgs, ListKind, TaskStatus, run};
+use taskfast_cli::cmd::task::{Command, GetArgs, ListArgs, ListKind, SubmitArgs, TaskStatus, run};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::{Environment, Envelope};
 
@@ -253,14 +255,220 @@ async fn missing_api_key_errors_before_any_http_call() {
 }
 
 #[tokio::test]
+async fn submit_zero_artifact_happy_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/submit")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "success": true,
+            "task_id": TASK_ID,
+            "status": "under_review",
+            "message": "submitted",
+            "evaluation": {
+                "passed": true,
+                "criteria_results": [],
+                "evaluated_at": "2026-04-13T21:00:00Z",
+            },
+        })))
+        .mount(&server)
+        .await;
+
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Submit(SubmitArgs {
+            id: TASK_ID.into(),
+            summary: "done".into(),
+            artifact: vec![],
+        }),
+    )
+    .await
+    .expect("submit should succeed");
+
+    let v = envelope_value(&envelope);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["task_id"], TASK_ID);
+    assert_eq!(v["data"]["artifacts"], json!([]));
+    assert_eq!(v["data"]["submission"]["status"], "under_review");
+}
+
+#[tokio::test]
+async fn submit_with_artifacts_uploads_each_then_submits() {
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let p1 = tmp.path().join("results.json");
+    let p2 = tmp.path().join("notes.txt");
+    {
+        let mut f = std::fs::File::create(&p1).unwrap();
+        f.write_all(br#"{"ok":true}"#).unwrap();
+    }
+    {
+        let mut f = std::fs::File::create(&p2).unwrap();
+        f.write_all(b"hello").unwrap();
+    }
+
+    let artifact1_id = "00000000-0000-0000-0000-0000000000f1";
+    let artifact2_id = "00000000-0000-0000-0000-0000000000f2";
+
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/artifacts")))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": artifact1_id,
+            "filename": "results.json",
+            "content_type": "application/json",
+            "url": "https://example/results.json",
+            "size_bytes": 11,
+            "created_at": "2026-04-13T21:00:00Z",
+        })))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/artifacts")))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": artifact2_id,
+            "filename": "notes.txt",
+            "content_type": "text/plain",
+            "url": "https://example/notes.txt",
+            "size_bytes": 5,
+            "created_at": "2026-04-13T21:00:01Z",
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/submit")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "success": true,
+            "task_id": TASK_ID,
+            "status": "under_review",
+            "message": "submitted",
+            "evaluation": {
+                "passed": true,
+                "criteria_results": [],
+                "evaluated_at": "2026-04-13T21:00:00Z",
+            },
+        })))
+        .mount(&server)
+        .await;
+
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Submit(SubmitArgs {
+            id: TASK_ID.into(),
+            summary: "two files".into(),
+            artifact: vec![p1.clone(), p2.clone()],
+        }),
+    )
+    .await
+    .expect("submit should succeed");
+
+    let v = envelope_value(&envelope);
+    assert_eq!(v["data"]["artifacts"].as_array().unwrap().len(), 2);
+    assert_eq!(v["data"]["artifacts"][0]["id"], artifact1_id);
+    assert_eq!(v["data"]["artifacts"][1]["id"], artifact2_id);
+    assert_eq!(v["data"]["submission"]["status"], "under_review");
+}
+
+#[tokio::test]
+async fn submit_missing_artifact_file_is_usage_error_without_hitting_server() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Submit(SubmitArgs {
+            id: TASK_ID.into(),
+            summary: "x".into(),
+            artifact: vec![std::path::PathBuf::from("/definitely/not/a/real/path.json")],
+        }),
+    )
+    .await
+    .expect_err("missing file must fail locally");
+    match err {
+        CmdError::Usage(msg) => assert!(msg.contains("not found"), "got: {msg}"),
+        other => panic!("expected Usage, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn submit_bad_uuid_is_usage_error_without_hitting_server() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Submit(SubmitArgs {
+            id: "not-a-uuid".into(),
+            summary: "x".into(),
+            artifact: vec![],
+        }),
+    )
+    .await
+    .expect_err("bad uuid must error locally");
+    assert!(matches!(err, CmdError::Usage(_)), "got: {err:?}");
+}
+
+#[tokio::test]
+async fn submit_dry_run_short_circuits_without_uploading() {
+    // No mock — any HTTP call would fail the test.
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let p1 = tmp.path().join("x.txt");
+    std::fs::write(&p1, b"abc").unwrap();
+
+    let mut ctx = ctx_for(&server, Some("test-key"));
+    ctx.dry_run = true;
+    let envelope = run(
+        &ctx,
+        Command::Submit(SubmitArgs {
+            id: TASK_ID.into(),
+            summary: "dry".into(),
+            artifact: vec![p1.clone()],
+        }),
+    )
+    .await
+    .expect("dry-run submit should succeed");
+
+    let v = envelope_value(&envelope);
+    assert_eq!(v["dry_run"], true);
+    assert_eq!(v["data"]["action"], "would_submit");
+    assert_eq!(v["data"]["task_id"], TASK_ID);
+    assert_eq!(v["data"]["artifacts"][0], p1.display().to_string());
+}
+
+#[tokio::test]
+async fn submit_upload_401_surfaces_as_auth_error() {
+    let server = MockServer::start().await;
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let p1 = tmp.path().join("x.txt");
+    std::fs::write(&p1, b"abc").unwrap();
+
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/artifacts")))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_api_key",
+            "message": "bad key",
+        })))
+        .mount(&server)
+        .await;
+
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Submit(SubmitArgs {
+            id: TASK_ID.into(),
+            summary: "x".into(),
+            artifact: vec![p1],
+        }),
+    )
+    .await
+    .expect_err("401 on upload must surface as Auth");
+    match err {
+        CmdError::Auth(_) => {}
+        other => panic!("expected Auth, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn deferred_subcommands_return_unimplemented() {
     let server = MockServer::start().await;
     for cmd in [
-        Command::Submit {
-            id: TASK_ID.into(),
-            artifact: vec![],
-            summary: "s".into(),
-        },
         Command::Approve {
             id: TASK_ID.into(),
         },

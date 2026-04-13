@@ -19,6 +19,8 @@
 //! other kind is a [`CmdError::Usage`] rather than a silent no-op (ambiguous
 //! flag combinations should fail loud).
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::json;
 use uuid::Uuid;
@@ -27,7 +29,7 @@ use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
 use taskfast_client::TaskFastClient;
-use taskfast_client::api::types::ListMyTasksStatus;
+use taskfast_client::api::types::{CompletionSubmission, ListMyTasksStatus};
 use taskfast_client::map_api_error;
 
 #[derive(Debug, Subcommand)]
@@ -36,23 +38,17 @@ pub enum Command {
     List(ListArgs),
     /// GET /tasks/{id} — full task detail.
     Get(GetArgs),
-    /// Worker: submit a completion. (Deferred — see am-e3u.5.)
-    Submit {
-        id: String,
-        #[arg(long)]
-        artifact: Vec<String>,
-        #[arg(long)]
-        summary: String,
-    },
-    /// Poster: approve a submission. (Deferred — needs settle flow; see am-e3u.8.)
+    /// Worker: upload artifacts (if any) and submit completion.
+    Submit(SubmitArgs),
+    /// Poster: approve a submission. (Deferred — needs settle flow.)
     Approve { id: String },
-    /// Either side: open a dispute. (Deferred — see am-e3u.6.)
+    /// Either side: open a dispute. (Deferred.)
     Dispute {
         id: String,
         #[arg(long)]
         reason: String,
     },
-    /// Poster: cancel before assignment. (Deferred — see am-e3u.7.)
+    /// Poster: cancel before assignment. (Deferred.)
     Cancel { id: String },
 }
 
@@ -80,6 +76,22 @@ pub struct ListArgs {
 pub struct GetArgs {
     /// Task ID (UUID).
     pub id: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct SubmitArgs {
+    /// Task ID (UUID) to submit completion for.
+    pub id: String,
+
+    /// Human-readable summary of the completed work. Required by the API.
+    #[arg(long)]
+    pub summary: String,
+
+    /// Path to an artifact file. Repeat for multiple artifacts. Each file
+    /// is uploaded via multipart `POST /tasks/{id}/artifacts`; the resulting
+    /// artifact IDs are passed to the final completion submission.
+    #[arg(long)]
+    pub artifact: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -125,10 +137,146 @@ pub async fn run(ctx: &Ctx, cmd: Command) -> CmdResult {
     match cmd {
         Command::List(args) => list(ctx, args).await,
         Command::Get(args) => get(ctx, args).await,
-        Command::Submit { .. } => Err(CmdError::Unimplemented("taskfast task submit")),
+        Command::Submit(args) => submit(ctx, args).await,
         Command::Approve { .. } => Err(CmdError::Unimplemented("taskfast task approve")),
         Command::Dispute { .. } => Err(CmdError::Unimplemented("taskfast task dispute")),
         Command::Cancel { .. } => Err(CmdError::Unimplemented("taskfast task cancel")),
+    }
+}
+
+async fn submit(ctx: &Ctx, args: SubmitArgs) -> CmdResult {
+    // Parse the task ID locally so bad input never costs a round-trip.
+    let task_id = Uuid::parse_str(&args.id)
+        .map_err(|e| CmdError::Usage(format!("task id must be a UUID: {e}")))?;
+
+    // Resolve each artifact path upfront — fail-fast on missing files so a
+    // half-uploaded set isn't left dangling on the server.
+    let resolved: Vec<ResolvedArtifact> = args
+        .artifact
+        .iter()
+        .map(|p| ResolvedArtifact::from_path(p))
+        .collect::<Result<_, _>>()?;
+
+    if ctx.dry_run {
+        return Ok(Envelope::success(
+            ctx.environment,
+            ctx.dry_run,
+            json!({
+                "action": "would_submit",
+                "task_id": task_id.to_string(),
+                "summary": args.summary,
+                "artifacts": resolved.iter().map(|r| r.display_path()).collect::<Vec<_>>(),
+            }),
+        ));
+    }
+
+    let client = ctx.client()?;
+
+    // Upload each artifact, collect IDs. Sequential to keep ordering
+    // deterministic — artifact_ids are semantically ordered by the server.
+    let mut artifact_ids: Vec<uuid::Uuid> = Vec::with_capacity(resolved.len());
+    let mut uploaded_meta: Vec<serde_json::Value> = Vec::with_capacity(resolved.len());
+    for r in resolved {
+        let bytes = std::fs::read(&r.path).map_err(|e| {
+            CmdError::Usage(format!("read {}: {e}", r.path.display()))
+        })?;
+        let artifact = client
+            .upload_artifact(&task_id, r.filename.clone(), r.content_type.clone(), bytes)
+            .await
+            .map_err(CmdError::from)?;
+        artifact_ids.push(artifact.id);
+        uploaded_meta.push(json!({
+            "id": artifact.id,
+            "filename": artifact.filename,
+            "content_type": artifact.content_type,
+            "size_bytes": artifact.size_bytes,
+        }));
+    }
+
+    let body = CompletionSubmission {
+        summary: args.summary.clone(),
+        artifact_ids: artifact_ids.clone(),
+        metadata: serde_json::Map::new(),
+    };
+    let result = match client.inner().submit_completion(&task_id, &body).await {
+        Ok(v) => v.into_inner(),
+        Err(e) => return Err(map_api_error(e).await.into()),
+    };
+
+    Ok(Envelope::success(
+        ctx.environment,
+        ctx.dry_run,
+        json!({
+            "task_id": task_id.to_string(),
+            "artifacts": uploaded_meta,
+            "submission": result,
+        }),
+    ))
+}
+
+/// Path + derived metadata (filename, content_type) needed for multipart
+/// upload. Parsed upfront so a missing file fails before any network I/O.
+struct ResolvedArtifact {
+    path: PathBuf,
+    filename: String,
+    content_type: String,
+}
+
+impl ResolvedArtifact {
+    fn from_path(p: &std::path::Path) -> Result<Self, CmdError> {
+        if !p.exists() {
+            return Err(CmdError::Usage(format!(
+                "artifact file not found: {}",
+                p.display()
+            )));
+        }
+        let filename = p
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| CmdError::Usage(format!("artifact path has no filename: {}", p.display())))?
+            .to_string();
+        let ext = p
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        let content_type = content_type_for_ext(&ext).to_string();
+        Ok(Self {
+            path: p.to_path_buf(),
+            filename,
+            content_type,
+        })
+    }
+
+    fn display_path(&self) -> String {
+        self.path.display().to_string()
+    }
+}
+
+/// Map file extension to the MIME types the server accepts. Anything
+/// unrecognized falls through to `application/octet-stream`; the server
+/// rejects unsupported types with 415 which our error mapping surfaces as
+/// `CmdError::Validation`.
+fn content_type_for_ext(ext: &str) -> &'static str {
+    match ext {
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "pdf" => "application/pdf",
+        "doc" => "application/msword",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "zip" => "application/zip",
+        "tar" => "application/x-tar",
+        "gz" => "application/gzip",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" => "application/javascript",
+        _ => "application/octet-stream",
     }
 }
 
