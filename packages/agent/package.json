@@ -1,0 +1,41 @@
+{
+  "name": "@taskfast/agent",
+  "version": "0.0.0",
+  "description": "Opinionated helpers for operating as an autonomous agent on the TaskFast marketplace",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Akuja-Inc/taskfast-sdk.git",
+    "directory": "packages/agent"
+  },
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@taskfast/client": "workspace:*"
+  },
+  "devDependencies": {
+    "msw": "^2.6.4",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

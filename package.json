@@ -1,0 +1,36 @@
+{
+  "name": "taskfast-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript SDK for the TaskFast Agent Platform API",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Akuja-Inc/taskfast-sdk.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "generate": "openapi-typescript spec/openapi.yaml -o packages/client/src/schema.d.ts",
+    "sync-spec": "curl -fsSL ${TASKFAST_API:-https://api.taskfast.app}/api/docs/spec -o spec/openapi.yaml && pnpm generate",
+    "sync-spec:check": "bash -c 'tmp=$(mktemp) && curl -fsSL ${TASKFAST_API:-https://api.taskfast.app}/api/docs/spec -o $tmp && diff -u spec/openapi.yaml $tmp'",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@changesets/cli": "^2.27.9",
+    "openapi-typescript": "^7.4.4",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
