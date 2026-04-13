@@ -1,9 +1,8 @@
 //! `cargo xtask <cmd>` — repo automation entrypoint.
-//!
-//! Today: `sync-spec` is a stub. It will (per am-74l) load spec/openapi.yaml,
-//! apply the in-memory error-schema normalizer, and hand the result to
-//! progenitor during the taskfast-client build.
 
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -15,16 +14,54 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Cmd {
-    /// Normalize + diff the OpenAPI spec used for client codegen.
-    SyncSpec,
+    /// Normalize the OpenAPI spec and write the result next to the input.
+    ///
+    /// Reads `spec/openapi.yaml`, folds structurally-identical error schemas
+    /// (see `xtask::ERROR_ALIASES`) into `#/components/schemas/Error`, and
+    /// writes the result to `spec/openapi.normalized.yaml`. The on-disk
+    /// authoritative spec is not modified.
+    SyncSpec {
+        /// Path to the input spec (default: `spec/openapi.yaml` relative to cwd).
+        #[arg(long, default_value = "spec/openapi.yaml")]
+        input: PathBuf,
+        /// Path to write the normalized output (default: `spec/openapi.normalized.yaml`).
+        #[arg(long, default_value = "spec/openapi.normalized.yaml")]
+        output: PathBuf,
+        /// Don't write output; just report what would change. Exit 0.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::SyncSpec => {
-            eprintln!("xtask sync-spec: not yet implemented (tracked in am-74l)");
-            std::process::exit(70);
-        }
+        Cmd::SyncSpec { input, output, dry_run } => run_sync_spec(&input, &output, dry_run),
     }
+}
+
+fn run_sync_spec(input: &std::path::Path, output: &std::path::Path, dry_run: bool) -> Result<()> {
+    let src = std::fs::read_to_string(input)
+        .with_context(|| format!("read spec from {}", input.display()))?;
+
+    let (normalized, report) = xtask::normalize_spec_with_report(&src)
+        .context("normalize spec in-memory")?;
+
+    eprintln!(
+        "sync-spec: folded {} alias(es), rewrote {} $ref(s)",
+        report.folded_aliases.len(),
+        report.refs_rewritten
+    );
+    if !report.folded_aliases.is_empty() {
+        eprintln!("  folded: {}", report.folded_aliases.join(", "));
+    }
+
+    if dry_run {
+        eprintln!("sync-spec: --dry-run, skipping write to {}", output.display());
+    } else {
+        std::fs::write(output, &normalized)
+            .with_context(|| format!("write normalized spec to {}", output.display()))?;
+        eprintln!("sync-spec: wrote {} ({} bytes)", output.display(), normalized.len());
+    }
+    Ok(())
 }

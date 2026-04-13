@@ -1,6 +1,9 @@
 target/
 Cargo.lock.bak
 *.rs.bk
+# Derived from spec/openapi.yaml by `cargo xtask sync-spec`.
+# Regenerate locally; source of truth is spec/openapi.yaml.
+spec/openapi.normalized.yaml
 .DS_Store
 .env
 .env.*

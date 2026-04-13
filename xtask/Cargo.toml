@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Repo automation — run via `cargo xtask <cmd>`. Not a public artifact."
+description = "Repo automation + shared spec tooling. Binary: `cargo xtask <cmd>`. Library: spec normalizer consumed by taskfast-client/build.rs."
+
+[lib]
+path = "src/lib.rs"
 
 [[bin]]
 name = "xtask"
