@@ -48,12 +48,17 @@ fn run_sync_spec(input: &std::path::Path, output: &std::path::Path, dry_run: boo
         .context("normalize spec in-memory")?;
 
     eprintln!(
-        "sync-spec: folded {} alias(es), rewrote {} $ref(s)",
+        "sync-spec: folded {} alias(es), rewrote {} $ref(s), stripped {} multipart op(s), dropped {} non-2xx response(s)",
         report.folded_aliases.len(),
-        report.refs_rewritten
+        report.refs_rewritten,
+        report.stripped_operations.len(),
+        report.error_responses_stripped,
     );
     if !report.folded_aliases.is_empty() {
-        eprintln!("  folded: {}", report.folded_aliases.join(", "));
+        eprintln!("  folded:    {}", report.folded_aliases.join(", "));
+    }
+    if !report.stripped_operations.is_empty() {
+        eprintln!("  stripped:  {}", report.stripped_operations.join(", "));
     }
 
     if dry_run {

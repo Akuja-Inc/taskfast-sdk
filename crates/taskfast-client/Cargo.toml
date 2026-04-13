@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Typed HTTP client for the TaskFast marketplace API (generated from spec/openapi.yaml)."
+build = "build.rs"
 
 [dependencies]
 anyhow.workspace = true
@@ -15,3 +16,23 @@ serde_json.workspace = true
 reqwest.workspace = true
 tokio = { workspace = true }
 tracing.workspace = true
+progenitor-client = "0.9"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+rand = "0.8"
+regress = "0.10"
+base64 = "0.22"
+futures = { workspace = true }
+
+[build-dependencies]
+progenitor = "0.9"
+openapiv3 = { version = "2", default-features = false }
+prettyplease = "0.2"
+syn = { version = "2", features = ["full"] }
+serde_yaml.workspace = true
+xtask = { path = "../../xtask" }
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true, features = ["macros", "rt"] }

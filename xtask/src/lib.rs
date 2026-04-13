@@ -25,6 +25,34 @@
 //! Adding a new alias ⇒ append to [`ERROR_ALIASES`]. If a schema grows a real
 //! distinguishing field, remove it from [`ERROR_ALIASES`]; the drift check
 //! will refuse to normalize otherwise.
+//!
+//! ## Multipart strip
+//!
+//! progenitor 0.9 can't codegen `multipart/form-data` request bodies. Rather
+//! than maintain a patched fork, the normalizer drops operations whose request
+//! body declares only multipart variants — today that is
+//! `POST /tasks/{task_id}/artifacts` (uploadArtifact). The upload path is
+//! hand-rolled in `taskfast-client` using `reqwest::multipart` directly; the
+//! Artifact *response* schema still comes through codegen because it's
+//! referenced by the surviving `GET /tasks/{task_id}/artifacts` operation.
+//! The removed operationIds are reported via [`Report::stripped_operations`]
+//! so callers can verify nothing unexpected disappeared.
+//!
+//! ## Error response strip
+//!
+//! progenitor 0.9 asserts `response_types.len() <= 1` for both the success
+//! and error response sets (see `progenitor-impl/src/method.rs` —
+//! `extract_responses`). Nearly every TaskFast operation declares 2–5
+//! distinct error response shapes (`Error`, `ValidationError`, `ClaimFailure`,
+//! etc.), which trips the error-side assertion. Rather than synthesize a
+//! union error type that we'd throw away anyway, the normalizer drops every
+//! non-2xx (and non-`default`) response before handing the spec to progenitor.
+//! Surfacing of 4xx/5xx failures is the job of `taskfast-client::errors::Error`,
+//! which reads the response body manually on the way up.
+//!
+//! This means the generated client sees every unhappy status as
+//! `progenitor_client::Error::UnexpectedResponse(reqwest::Response)` — we
+//! re-classify into our typed [`errors::Error`] in the calling layer.
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde_yaml::{Mapping, Value};
@@ -59,6 +87,12 @@ pub struct Report {
     pub folded_aliases: Vec<String>,
     /// Count of `$ref` rewrites performed across the document.
     pub refs_rewritten: usize,
+    /// `operationId`s stripped because their only request-body variant was
+    /// multipart/form-data (progenitor 0.9 limitation).
+    pub stripped_operations: Vec<String>,
+    /// Count of non-2xx response entries removed across all operations
+    /// (progenitor 0.9 `response_types.len() <= 1` assertion).
+    pub error_responses_stripped: usize,
 }
 
 fn normalize_in_place(doc: &mut Value) -> Result<Report> {
@@ -115,7 +149,135 @@ fn normalize_in_place(doc: &mut Value) -> Result<Report> {
     }
     report.folded_aliases = present_aliases;
 
+    // Pass 4: strip multipart-only operations (progenitor 0.9 limitation).
+    report.stripped_operations = strip_multipart_only_operations(doc);
+
+    // Pass 5: strip non-2xx responses from every surviving operation
+    // (progenitor 0.9 extract_responses assertion, error side).
+    report.error_responses_stripped = strip_non_success_responses(doc);
+
     Ok(report)
+}
+
+/// Remove operations whose request body has exactly one content variant,
+/// `multipart/form-data`. Returns the removed `operationId`s (stable order).
+///
+/// We don't touch operations that declare multipart *alongside* another
+/// variant — those are handled by a preferred-content-type collapse pass that
+/// doesn't exist yet; today no such operations exist in the TaskFast spec.
+fn strip_multipart_only_operations(doc: &mut Value) -> Vec<String> {
+    let mut stripped = Vec::new();
+    let Some(paths) = doc
+        .as_mapping_mut()
+        .and_then(|m| m.get_mut(Value::from("paths")))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return stripped;
+    };
+
+    const HTTP_VERBS: &[&str] = &["get", "put", "post", "delete", "patch", "options", "head"];
+    for (_path_key, path_item) in paths.iter_mut() {
+        let Some(ops) = path_item.as_mapping_mut() else { continue };
+        let mut to_remove = Vec::new();
+        for verb in HTTP_VERBS {
+            if let Some(op) = ops.get(Value::from(*verb)) {
+                if operation_is_multipart_only(op) {
+                    let op_id = op
+                        .get(Value::from("operationId"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("<anonymous>")
+                        .to_string();
+                    to_remove.push(*verb);
+                    stripped.push(op_id);
+                }
+            }
+        }
+        for verb in to_remove {
+            ops.remove(Value::from(verb));
+        }
+    }
+    stripped
+}
+
+/// For each operation under `paths.*.<verb>.responses`, remove every entry
+/// whose key is not a 2xx status code or the literal `default`. Returns the
+/// total count of removed entries across the document.
+///
+/// Rationale: progenitor 0.9 asserts that both the success and error response
+/// sets have at most one distinct body type. TaskFast endpoints declare
+/// multiple distinct error shapes (`Error`, `ValidationError`, feature-specific
+/// failure envelopes). Surfacing those as typed variants in the generated
+/// client is not the generator's job here — `taskfast-client::errors::Error`
+/// reconstructs error semantics from the raw response body. Dropping non-2xx
+/// response definitions short-circuits the assertion without hiding anything
+/// the client layer doesn't already re-implement.
+fn strip_non_success_responses(doc: &mut Value) -> usize {
+    let mut removed = 0usize;
+    let Some(paths) = doc
+        .as_mapping_mut()
+        .and_then(|m| m.get_mut(Value::from("paths")))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return 0;
+    };
+
+    const HTTP_VERBS: &[&str] = &["get", "put", "post", "delete", "patch", "options", "head"];
+    for (_path_key, path_item) in paths.iter_mut() {
+        let Some(ops) = path_item.as_mapping_mut() else { continue };
+        for verb in HTTP_VERBS {
+            let Some(op) = ops.get_mut(Value::from(*verb)) else { continue };
+            let Some(responses) = op
+                .as_mapping_mut()
+                .and_then(|m| m.get_mut(Value::from("responses")))
+                .and_then(Value::as_mapping_mut)
+            else {
+                continue;
+            };
+
+            let to_remove: Vec<Value> = responses
+                .iter()
+                .filter_map(|(k, _)| {
+                    let key = k.as_str()?;
+                    if is_success_or_default(key) { None } else { Some(k.clone()) }
+                })
+                .collect();
+            for k in to_remove {
+                if responses.remove(&k).is_some() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+    removed
+}
+
+fn is_success_or_default(code: &str) -> bool {
+    if code == "default" {
+        return true;
+    }
+    // 2XX ranges (e.g. "2XX") and explicit codes 200..=299.
+    match code.chars().next() {
+        Some('2') => true,
+        _ => false,
+    }
+}
+
+fn operation_is_multipart_only(op: &Value) -> bool {
+    let Some(body) = op
+        .as_mapping()
+        .and_then(|m| m.get(Value::from("requestBody")))
+    else {
+        return false;
+    };
+    let Some(content) = body
+        .as_mapping()
+        .and_then(|m| m.get(Value::from("content")))
+        .and_then(Value::as_mapping)
+    else {
+        return false;
+    };
+    let keys: Vec<&str> = content.keys().filter_map(Value::as_str).collect();
+    keys.len() == 1 && keys[0] == "multipart/form-data"
 }
 
 /// Structural projection: strip doc-only fields so two schemas differing only
@@ -256,10 +418,11 @@ components:
         assert_eq!(report.folded_aliases, vec!["WalletBalanceNotFoundError".to_string()]);
         assert_eq!(report.refs_rewritten, 1);
 
-        // The alias ref is rewritten.
+        // The canonical Error schema definition still lives in components
+        // (non-2xx response strip removes the *usages*, not the shared type).
         assert!(
-            out.contains("#/components/schemas/Error"),
-            "canonical ref still present"
+            out.contains("Error:\n      type: object"),
+            "canonical Error schema missing:\n{out}"
         );
         assert!(
             !out.contains("WalletBalanceNotFoundError"),
@@ -296,5 +459,71 @@ components:
         let bad = BASE_SPEC.replace("Error:", "NotError:");
         let err = normalize_spec(bad.as_str()).unwrap_err();
         assert!(format!("{err:#}").contains("canonical schema `Error` not found"));
+    }
+
+    const MULTIPART_SPEC: &str = r#"
+openapi: 3.0.0
+info: { title: test, version: 0.0.0 }
+paths:
+  /upload:
+    post:
+      operationId: uploadThing
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: ok }
+    get:
+      operationId: listThings
+      responses:
+        '200': { description: ok }
+  /json_only:
+    post:
+      operationId: postJsonThing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '201': { description: ok }
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+"#;
+
+    #[test]
+    fn non_success_responses_are_stripped() {
+        let (out, report) = normalize_spec_with_report(BASE_SPEC).unwrap();
+        // BASE_SPEC has one op with 200/404/503 — 404 and 503 must go.
+        assert_eq!(report.error_responses_stripped, 2);
+        // The success code survives.
+        assert!(out.contains("'200':"));
+        // Error codes are gone.
+        assert!(!out.contains("'404':"), "404 not stripped:\n{out}");
+        assert!(!out.contains("'503':"), "503 not stripped:\n{out}");
+    }
+
+    #[test]
+    fn multipart_only_operation_is_stripped() {
+        let (out, report) = normalize_spec_with_report(MULTIPART_SPEC).unwrap();
+        assert_eq!(report.stripped_operations, vec!["uploadThing".to_string()]);
+        assert!(!out.contains("uploadThing"), "uploadThing not stripped");
+        // Siblings untouched.
+        assert!(out.contains("listThings"), "sibling GET removed by mistake");
+        assert!(out.contains("postJsonThing"), "JSON-only POST removed by mistake");
+        // The path entry itself survives because listThings still lives there.
+        assert!(out.contains("/upload:"));
     }
 }
