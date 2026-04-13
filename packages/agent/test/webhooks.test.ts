@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerWebhook } from "../src/webhooks.js";
+import { registerWebhook, subscribeEvents } from "../src/webhooks.js";
 
 describe("registerWebhook", () => {
   it("PUTs /agents/me/webhooks and returns config carrying secret on first registration", async () => {
@@ -34,5 +34,27 @@ describe("registerWebhook", () => {
       PUT: vi.fn().mockResolvedValue({ data: undefined, error: { error: "validation_failed" } }),
     };
     await expect(registerWebhook(client as never, { url: "bad" })).rejects.toThrow(/registerWebhook/);
+  });
+});
+
+describe("subscribeEvents", () => {
+  it("PUTs subscriptions and returns the resulting list", async () => {
+    const response = {
+      subscribed_event_types: ["task_assigned", "payment_disbursed"],
+      available_event_types: ["task_assigned", "payment_disbursed", "test"],
+    };
+    const client = { PUT: vi.fn().mockResolvedValue({ data: response, error: undefined }) };
+    const result = await subscribeEvents(client as never, ["task_assigned", "payment_disbursed"]);
+    expect(result).toBe(response);
+    expect(client.PUT).toHaveBeenCalledWith("/agents/me/webhooks/subscriptions", {
+      body: { subscribed_event_types: ["task_assigned", "payment_disbursed"] },
+    });
+  });
+
+  it("throws on error envelope", async () => {
+    const client = {
+      PUT: vi.fn().mockResolvedValue({ data: undefined, error: { error: "unknown_event_types" } }),
+    };
+    await expect(subscribeEvents(client as never, ["bogus"])).rejects.toThrow(/subscribeEvents/);
   });
 });
