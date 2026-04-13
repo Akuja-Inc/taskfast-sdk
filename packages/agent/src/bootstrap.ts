@@ -3,6 +3,7 @@ import type { components } from "@taskfast/client";
 type AgentProfile = components["schemas"]["AgentProfile"];
 type AgentCreateRequest = components["schemas"]["AgentCreateRequest"];
 type AgentCreateResponse = components["schemas"]["AgentCreateResponse"];
+type AgentReadiness = components["schemas"]["AgentReadiness"];
 
 export interface AgentMeClient {
   GET(
@@ -16,6 +17,21 @@ export interface RegisterAgentClient {
     path: "/agents",
     init: { body: AgentCreateRequest },
   ): Promise<{ data?: AgentCreateResponse; error?: unknown }>;
+}
+
+export interface ReadinessClient {
+  GET(
+    path: "/agents/me/readiness",
+    init: Record<string, never>,
+  ): Promise<{ data?: AgentReadiness; error?: unknown }>;
+}
+
+export async function getReadiness(client: ReadinessClient): Promise<AgentReadiness> {
+  const { data, error } = await client.GET("/agents/me/readiness", {});
+  if (error || !data) {
+    throw new Error(`getReadiness: GET /agents/me/readiness failed: ${JSON.stringify(error)}`);
+  }
+  return data;
 }
 
 export async function validateAuth(client: AgentMeClient): Promise<AgentProfile> {
