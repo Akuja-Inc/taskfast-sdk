@@ -23,7 +23,10 @@ clap.workspace = true
 taskfast-client = { workspace = true }
 taskfast-agent = { workspace = true }
 alloy-signer-local = { workspace = true }
+alloy-primitives = { workspace = true }
 hex = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]

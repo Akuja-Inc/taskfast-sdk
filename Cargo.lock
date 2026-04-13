@@ -3454,10 +3454,13 @@ dependencies = [
 name = "taskfast-cli"
 version = "0.2.0"
 dependencies = [
+ "alloy-primitives",
  "alloy-signer-local",
  "anyhow",
+ "chrono",
  "clap",
  "hex",
+ "reqwest",
  "serde",
  "serde_json",
  "taskfast-agent",
