@@ -1,4 +1,21 @@
 //! JSON output envelope — uniform across success/error/dry-run.
+//!
+//! Shape (success):
+//! ```json
+//! { "ok": true, "environment": "production", "dry_run": false, "data": {...} }
+//! ```
+//!
+//! Shape (error):
+//! ```json
+//! {
+//!   "ok": false, "environment": "production", "dry_run": false,
+//!   "error": { "code": "rate_limited", "message": "...", "retry_after_seconds": 30 }
+//! }
+//! ```
+//!
+//! Orchestrators branch on `ok` + `error.code`; `retry_after_seconds` is
+//! populated only when the server supplied a sleep hint (HTTP 429) so callers
+//! don't have to regex-scrape the human message to schedule their next try.
 
 use serde::Serialize;
 
@@ -20,11 +37,21 @@ pub struct Envelope {
 pub struct ErrorPayload {
     pub code: &'static str,
     pub message: String,
+    /// Server-directed sleep hint in whole seconds. Present only for
+    /// rate-limited errors that carried a `Retry-After` header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u64>,
 }
 
 impl Envelope {
     pub fn success(env: Environment, dry_run: bool, data: serde_json::Value) -> Self {
-        Self { ok: true, environment: env.as_str(), dry_run, data: Some(data), error: None }
+        Self {
+            ok: true,
+            environment: env.as_str(),
+            dry_run,
+            data: Some(data),
+            error: None,
+        }
     }
 
     pub fn error(env: Environment, dry_run: bool, err: &CmdError) -> Self {
@@ -33,7 +60,11 @@ impl Envelope {
             environment: env.as_str(),
             dry_run,
             data: None,
-            error: Some(ErrorPayload { code: err.code(), message: err.to_string() }),
+            error: Some(ErrorPayload {
+                code: err.code(),
+                message: err.to_string(),
+                retry_after_seconds: err.retry_after().map(|d| d.as_secs()),
+            }),
         }
     }
 
@@ -41,5 +72,61 @@ impl Envelope {
         // Flush is implicit — stdout closes on process exit.
         let _ = serde_json::to_writer(std::io::stdout().lock(), self);
         println!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn success_envelope_omits_error_field() {
+        let env = Envelope::success(
+            Environment::Prod,
+            false,
+            serde_json::json!({"agent_id": "ag_1"}),
+        );
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["environment"], "production");
+        assert_eq!(v["dry_run"], false);
+        assert_eq!(v["data"]["agent_id"], "ag_1");
+        assert!(v.get("error").is_none(), "error must be omitted on success");
+    }
+
+    #[test]
+    fn error_envelope_omits_data_field_and_carries_code() {
+        let err = CmdError::Auth("401".into());
+        let env = Envelope::error(Environment::Staging, false, &err);
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["environment"], "staging");
+        assert_eq!(v["error"]["code"], "auth");
+        assert!(v["error"]["message"].as_str().unwrap().contains("401"));
+        assert!(v.get("data").is_none(), "data must be omitted on error");
+        assert!(
+            v["error"].get("retry_after_seconds").is_none(),
+            "retry_after_seconds must be omitted when absent"
+        );
+    }
+
+    #[test]
+    fn rate_limited_error_surfaces_retry_after_seconds() {
+        let err = CmdError::RateLimited {
+            retry_after: Duration::from_secs(30),
+        };
+        let env = Envelope::error(Environment::Prod, false, &err);
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["error"]["code"], "rate_limited");
+        assert_eq!(v["error"]["retry_after_seconds"], 30);
+    }
+
+    #[test]
+    fn dry_run_flag_is_serialized_verbatim() {
+        let env = Envelope::success(Environment::Local, true, serde_json::json!({}));
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["dry_run"], true);
+        assert_eq!(v["environment"], "local");
     }
 }

@@ -1,7 +1,8 @@
 //! `taskfast` binary entry point.
 //!
-//! Phase 1 scaffold: clap command tree in place, all subcommands exit with
-//! the `unimplemented` envelope. Bodies land in follow-up tasks.
+//! Global flag parsing + dispatch to [`cmd`] modules. Every subcommand
+//! returns `Result<Envelope, CmdError>`; we print the envelope (unless
+//! `--quiet`) and exit with the matching code from [`exit::ExitCode`].
 
 use clap::{Parser, Subcommand};
 
@@ -10,7 +11,6 @@ mod envelope;
 mod exit;
 
 use envelope::Envelope;
-use exit::ExitCode;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -27,11 +27,17 @@ struct Cli {
     #[arg(long, global = true, default_value = "prod", env = "TASKFAST_ENV")]
     env: Environment,
 
+    /// Override the resolved base URL (bypasses env → URL mapping). Useful
+    /// for pointing at a local dev server without touching prod defaults.
+    #[arg(long, global = true, env = "TASKFAST_API")]
+    api_base: Option<String>,
+
     /// Short-circuit mutations; reads pass through.
     #[arg(long, global = true)]
     dry_run: bool,
 
-    /// Emit tracing logs to stderr.
+    /// Emit tracing logs to stderr. Accepts an `env_logger`-style filter
+    /// (e.g. `--verbose=debug`, `--verbose=taskfast_client=trace`).
     #[arg(long, global = true, value_name = "LEVEL", num_args = 0..=1, default_missing_value = "info")]
     verbose: Option<String>,
 
@@ -44,18 +50,30 @@ struct Cli {
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
-enum Environment {
+pub enum Environment {
     Prod,
     Staging,
     Local,
 }
 
 impl Environment {
-    fn as_str(self) -> &'static str {
+    /// Label used in the `environment` field of the JSON envelope.
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Prod => "production",
             Self::Staging => "staging",
             Self::Local => "local",
+        }
+    }
+
+    /// Default API base URL for this environment. Overridable via
+    /// `--api-base` / `TASKFAST_API` so one-off dev targets don't require
+    /// shipping a new binary.
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::Prod => "https://api.taskfast.app",
+            Self::Staging => "https://staging.api.taskfast.app",
+            Self::Local => "http://localhost:4000",
         }
     }
 }
@@ -84,16 +102,21 @@ enum Command {
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+
     if let Some(level) = cli.verbose.as_deref() {
-        tracing_subscriber::fmt()
+        // Fallible init: tracing subscriber can only be set once per
+        // process. Ignore re-init errors so tests that call main()
+        // multiple times in-process don't trip the global-default trap.
+        let _ = tracing_subscriber::fmt()
             .with_writer(std::io::stderr)
             .with_env_filter(level)
-            .init();
+            .try_init();
     }
 
     let ctx = cmd::Ctx {
         api_key: cli.api_key,
         environment: cli.env,
+        api_base: cli.api_base,
         dry_run: cli.dry_run,
         quiet: cli.quiet,
     };
@@ -110,13 +133,13 @@ async fn main() -> std::process::ExitCode {
 
     match result {
         Ok(env) => {
-            if !cli.quiet {
+            if !ctx.quiet {
                 env.emit();
             }
-            ExitCode::Success.into()
+            exit::ExitCode::Success.into()
         }
         Err(e) => {
-            if !cli.quiet {
+            if !ctx.quiet {
                 Envelope::error(ctx.environment, ctx.dry_run, &e).emit();
             }
             e.exit_code().into()
