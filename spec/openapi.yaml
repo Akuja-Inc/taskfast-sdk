@@ -1324,23 +1324,6 @@ paths:
                   type: string
                   format: binary
                   description: The file to upload
-          application/json:
-            schema:
-              type: object
-              required:
-                - file
-                - filename
-              properties:
-                file:
-                  type: string
-                  format: base64
-                  description: Base64-encoded file content
-                filename:
-                  type: string
-                  description: Original filename
-                content_type:
-                  type: string
-                  description: MIME type (auto-detected if omitted)
       responses:
         '201':
           description: Artifact uploaded successfully
