@@ -9,7 +9,10 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::task::{Command, GetArgs, ListArgs, ListKind, SubmitArgs, TaskStatus, run};
+use taskfast_cli::cmd::task::{
+    ApproveArgs, CancelArgs, Command, DisputeArgs, GetArgs, ListArgs, ListKind, SubmitArgs,
+    TaskStatus, run,
+};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::{Environment, Envelope};
 
@@ -465,24 +468,398 @@ async fn submit_upload_401_surfaces_as_auth_error() {
     }
 }
 
+// ─── task approve ─────────────────────────────────────────────────────────
+
 #[tokio::test]
-async fn deferred_subcommands_return_unimplemented() {
+async fn approve_happy_path_returns_task_id_and_status() {
     let server = MockServer::start().await;
-    for cmd in [
-        Command::Approve {
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "task_id": TASK_ID,
+            "status": "complete",
+        })))
+        .mount(&server)
+        .await;
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Approve(ApproveArgs {
             id: TASK_ID.into(),
-        },
-        Command::Dispute {
+        }),
+    )
+    .await
+    .expect("approve ok");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["task_id"], TASK_ID);
+    assert_eq!(v["data"]["status"], "complete");
+}
+
+#[tokio::test]
+async fn approve_dry_run_skips_http() {
+    let server = MockServer::start().await; // no mocks
+    let mut ctx = ctx_for(&server, Some("test-key"));
+    ctx.dry_run = true;
+    let envelope = run(
+        &ctx,
+        Command::Approve(ApproveArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect("dry-run ok");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["dry_run"], true);
+    assert_eq!(v["data"]["action"], "would_approve");
+    assert_eq!(v["data"]["task_id"], TASK_ID);
+}
+
+#[tokio::test]
+async fn approve_bad_uuid_is_usage_error_without_any_http() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Approve(ApproveArgs {
+            id: "not-a-uuid".into(),
+        }),
+    )
+    .await
+    .expect_err("bad UUID");
+    assert!(matches!(err, CmdError::Usage(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn approve_403_surfaces_as_auth() {
+    // 403 = "only the task poster can approve". Client maps 401|403 → Auth
+    // (see taskfast_client::client::map_api_error) — forbidden is treated as
+    // an auth problem, not a validation one. Orchestrators use the Auth exit
+    // code to decide "re-credential" rather than "retry payload".
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": "not_poster",
+            "message": "only the task poster can approve",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Approve(ApproveArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect_err("403 must surface");
+    assert!(matches!(err, CmdError::Auth(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn approve_409_surfaces() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": "wrong_status",
+            "message": "task is not in under_review",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Approve(ApproveArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect_err("409 must surface");
+    assert!(
+        matches!(err, CmdError::Validation { .. } | CmdError::Server(_)),
+        "got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn approve_401_surfaces_as_auth() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_api_key",
+            "message": "bad key",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Approve(ApproveArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect_err("401 must surface");
+    assert!(matches!(err, CmdError::Auth(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn approve_missing_api_key_errors_before_any_http() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, None),
+        Command::Approve(ApproveArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect_err("no key");
+    assert!(matches!(err, CmdError::MissingApiKey), "got {err:?}");
+}
+
+// ─── task dispute ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn dispute_happy_path_returns_dispute_block() {
+    let server = MockServer::start().await;
+    let dispute_id = "00000000-0000-0000-0000-00000000d15b";
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/dispute")))
+        .and(wiremock::matchers::body_partial_json(json!({
+            "reason": "not what I asked for",
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "success": true,
+            "task_id": TASK_ID,
+            "status": "disputed",
+            "message": "Dispute raised successfully",
+            "dispute": {
+                "id": dispute_id,
+                "reason": "not what I asked for",
+                "remedy_deadline": "2026-04-20T00:00:00Z",
+            },
+        })))
+        .mount(&server)
+        .await;
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Dispute(DisputeArgs {
+            id: TASK_ID.into(),
+            reason: "not what I asked for".into(),
+        }),
+    )
+    .await
+    .expect("dispute ok");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["status"], "disputed");
+    assert_eq!(v["data"]["dispute"]["id"], dispute_id);
+    assert_eq!(v["data"]["dispute"]["reason"], "not what I asked for");
+}
+
+#[tokio::test]
+async fn dispute_dry_run_skips_http() {
+    let server = MockServer::start().await;
+    let mut ctx = ctx_for(&server, Some("test-key"));
+    ctx.dry_run = true;
+    let envelope = run(
+        &ctx,
+        Command::Dispute(DisputeArgs {
+            id: TASK_ID.into(),
+            reason: "because".into(),
+        }),
+    )
+    .await
+    .expect("dry-run ok");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["dry_run"], true);
+    assert_eq!(v["data"]["action"], "would_dispute");
+    assert_eq!(v["data"]["reason"], "because");
+}
+
+#[tokio::test]
+async fn dispute_bad_uuid_is_usage_error_without_any_http() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Dispute(DisputeArgs {
+            id: "bad".into(),
+            reason: "r".into(),
+        }),
+    )
+    .await
+    .expect_err("bad UUID");
+    assert!(matches!(err, CmdError::Usage(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn dispute_empty_reason_is_usage_error_without_any_http() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Dispute(DisputeArgs {
+            id: TASK_ID.into(),
+            reason: "   \n".into(),
+        }),
+    )
+    .await
+    .expect_err("empty reason");
+    match err {
+        CmdError::Usage(m) => assert!(m.contains("--reason"), "unexpected: {m}"),
+        other => panic!("expected Usage, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn dispute_409_surfaces() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/dispute")))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": "already_disputed",
+            "message": "dispute exists",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Dispute(DisputeArgs {
             id: TASK_ID.into(),
             reason: "r".into(),
-        },
-        Command::Cancel {
+        }),
+    )
+    .await
+    .expect_err("409 must surface");
+    assert!(
+        matches!(err, CmdError::Validation { .. } | CmdError::Server(_)),
+        "got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn dispute_401_surfaces_as_auth() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/dispute")))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_api_key",
+            "message": "bad key",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Dispute(DisputeArgs {
             id: TASK_ID.into(),
-        },
-    ] {
-        let err = run(&ctx_for(&server, Some("test-key")), cmd)
-            .await
-            .expect_err("stubs must return Unimplemented");
-        assert!(matches!(err, CmdError::Unimplemented(_)), "got {err:?}");
-    }
+            reason: "r".into(),
+        }),
+    )
+    .await
+    .expect_err("401");
+    assert!(matches!(err, CmdError::Auth(_)), "got {err:?}");
+}
+
+// ─── task cancel ──────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn cancel_happy_path_returns_id_and_status() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/cancel")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": TASK_ID,
+            "status": "cancelled",
+        })))
+        .mount(&server)
+        .await;
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Cancel(CancelArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect("cancel ok");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["id"], TASK_ID);
+    assert_eq!(v["data"]["status"], "cancelled");
+}
+
+#[tokio::test]
+async fn cancel_dry_run_skips_http() {
+    let server = MockServer::start().await;
+    let mut ctx = ctx_for(&server, Some("test-key"));
+    ctx.dry_run = true;
+    let envelope = run(
+        &ctx,
+        Command::Cancel(CancelArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect("dry-run ok");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["dry_run"], true);
+    assert_eq!(v["data"]["action"], "would_cancel");
+    assert_eq!(v["data"]["task_id"], TASK_ID);
+}
+
+#[tokio::test]
+async fn cancel_bad_uuid_is_usage_error_without_any_http() {
+    let server = MockServer::start().await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Cancel(CancelArgs {
+            id: "bad".into(),
+        }),
+    )
+    .await
+    .expect_err("bad UUID");
+    assert!(matches!(err, CmdError::Usage(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn cancel_409_surfaces_non_cancellable_state() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/cancel")))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": "wrong_status",
+            "message": "task cannot be cancelled from its current state",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Cancel(CancelArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect_err("409 must surface");
+    assert!(
+        matches!(err, CmdError::Validation { .. } | CmdError::Server(_)),
+        "got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn cancel_401_surfaces_as_auth() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/tasks/{TASK_ID}/cancel")))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_api_key",
+            "message": "bad key",
+        })))
+        .mount(&server)
+        .await;
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Cancel(CancelArgs {
+            id: TASK_ID.into(),
+        }),
+    )
+    .await
+    .expect_err("401");
+    assert!(matches!(err, CmdError::Auth(_)), "got {err:?}");
 }

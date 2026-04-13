@@ -1,9 +1,11 @@
 //! `taskfast task` — read + mutate operations on tasks.
 //!
-//! This slice (am-e3u.4) implements the **read path** only: `list` + `get`.
-//! Mutations (`submit`, `approve`, `dispute`, `cancel`) stay as
-//! `Unimplemented` stubs so `main.rs` dispatch keeps compiling; each one
-//! lands in its own bead with signing/escrow concerns handled in isolation.
+//! Read (am-e3u.4): `list` + `get`. Worker mutation (am-edc): `submit`.
+//! Poster mutations (am-plyy): `approve` / `dispute` / `cancel` — all
+//! unsigned per spec; server owns the state-machine gates and returns
+//! 403/409 for role/state violations, which we surface via `map_api_error`.
+//! Disbursement is server-driven after `approve` — there is deliberately
+//! no client-signed settle step in the current spec.
 //!
 //! # List semantics
 //!
@@ -29,7 +31,7 @@ use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
 use taskfast_client::TaskFastClient;
-use taskfast_client::api::types::{CompletionSubmission, ListMyTasksStatus};
+use taskfast_client::api::types::{CompletionSubmission, DisputeRequest, ListMyTasksStatus};
 use taskfast_client::map_api_error;
 
 #[derive(Debug, Subcommand)]
@@ -40,16 +42,12 @@ pub enum Command {
     Get(GetArgs),
     /// Worker: upload artifacts (if any) and submit completion.
     Submit(SubmitArgs),
-    /// Poster: approve a submission. (Deferred — needs settle flow.)
-    Approve { id: String },
-    /// Either side: open a dispute. (Deferred.)
-    Dispute {
-        id: String,
-        #[arg(long)]
-        reason: String,
-    },
-    /// Poster: cancel before assignment. (Deferred.)
-    Cancel { id: String },
+    /// Poster: approve an under-review submission — releases payment.
+    Approve(ApproveArgs),
+    /// Poster: raise a dispute during the review window.
+    Dispute(DisputeArgs),
+    /// Poster: cancel a task before the state machine locks it in.
+    Cancel(CancelArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -75,6 +73,29 @@ pub struct ListArgs {
 #[derive(Debug, Parser)]
 pub struct GetArgs {
     /// Task ID (UUID).
+    pub id: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct ApproveArgs {
+    /// Task UUID. Must be in `:under_review` and posted by this agent.
+    pub id: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct DisputeArgs {
+    /// Task UUID. Must be in `:under_review` and posted by this agent.
+    pub id: String,
+
+    /// Dispute reason shown to the assignee. Required; empty/whitespace
+    /// fails locally so the server never sees a 400 that we could catch.
+    #[arg(long)]
+    pub reason: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct CancelArgs {
+    /// Task UUID. Allowed from open/bidding/assigned/unassigned/abandoned.
     pub id: String,
 }
 
@@ -138,10 +159,105 @@ pub async fn run(ctx: &Ctx, cmd: Command) -> CmdResult {
         Command::List(args) => list(ctx, args).await,
         Command::Get(args) => get(ctx, args).await,
         Command::Submit(args) => submit(ctx, args).await,
-        Command::Approve { .. } => Err(CmdError::Unimplemented("taskfast task approve")),
-        Command::Dispute { .. } => Err(CmdError::Unimplemented("taskfast task dispute")),
-        Command::Cancel { .. } => Err(CmdError::Unimplemented("taskfast task cancel")),
+        Command::Approve(args) => approve(ctx, args).await,
+        Command::Dispute(args) => dispute(ctx, args).await,
+        Command::Cancel(args) => cancel(ctx, args).await,
     }
+}
+
+async fn approve(ctx: &Ctx, args: ApproveArgs) -> CmdResult {
+    let task_id = Uuid::parse_str(&args.id)
+        .map_err(|e| CmdError::Usage(format!("task id must be a UUID: {e}")))?;
+    if ctx.dry_run {
+        return Ok(Envelope::success(
+            ctx.environment,
+            ctx.dry_run,
+            json!({
+                "action": "would_approve",
+                "task_id": task_id.to_string(),
+            }),
+        ));
+    }
+    let client = ctx.client()?;
+    let resp = match client.inner().approve_task(&task_id).await {
+        Ok(v) => v.into_inner(),
+        Err(e) => return Err(map_api_error(e).await.into()),
+    };
+    Ok(Envelope::success(
+        ctx.environment,
+        ctx.dry_run,
+        json!({
+            "task_id": resp.task_id,
+            "status": resp.status,
+        }),
+    ))
+}
+
+async fn dispute(ctx: &Ctx, args: DisputeArgs) -> CmdResult {
+    let task_id = Uuid::parse_str(&args.id)
+        .map_err(|e| CmdError::Usage(format!("task id must be a UUID: {e}")))?;
+    // Server returns 400 on empty reason; catch it locally so orchestrators
+    // see a Usage error (retry-never) rather than a Validation error.
+    if args.reason.trim().is_empty() {
+        return Err(CmdError::Usage("--reason must not be empty".into()));
+    }
+    if ctx.dry_run {
+        return Ok(Envelope::success(
+            ctx.environment,
+            ctx.dry_run,
+            json!({
+                "action": "would_dispute",
+                "task_id": task_id.to_string(),
+                "reason": args.reason,
+            }),
+        ));
+    }
+    let client = ctx.client()?;
+    let body = DisputeRequest {
+        reason: args.reason.clone(),
+    };
+    let resp = match client.inner().raise_dispute(&task_id, &body).await {
+        Ok(v) => v.into_inner(),
+        Err(e) => return Err(map_api_error(e).await.into()),
+    };
+    Ok(Envelope::success(
+        ctx.environment,
+        ctx.dry_run,
+        json!({
+            "task_id": resp.task_id,
+            "status": resp.status,
+            "dispute": resp.dispute,
+            "message": resp.message,
+        }),
+    ))
+}
+
+async fn cancel(ctx: &Ctx, args: CancelArgs) -> CmdResult {
+    let task_id = Uuid::parse_str(&args.id)
+        .map_err(|e| CmdError::Usage(format!("task id must be a UUID: {e}")))?;
+    if ctx.dry_run {
+        return Ok(Envelope::success(
+            ctx.environment,
+            ctx.dry_run,
+            json!({
+                "action": "would_cancel",
+                "task_id": task_id.to_string(),
+            }),
+        ));
+    }
+    let client = ctx.client()?;
+    let resp = match client.inner().cancel_task(&task_id).await {
+        Ok(v) => v.into_inner(),
+        Err(e) => return Err(map_api_error(e).await.into()),
+    };
+    Ok(Envelope::success(
+        ctx.environment,
+        ctx.dry_run,
+        json!({
+            "id": resp.id,
+            "status": resp.status,
+        }),
+    ))
 }
 
 async fn submit(ctx: &Ctx, args: SubmitArgs) -> CmdResult {
