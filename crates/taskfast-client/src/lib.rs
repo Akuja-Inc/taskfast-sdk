@@ -8,9 +8,11 @@
 //! ([`errors::Error`], [`retry::with_backoff`]) live in sibling modules and
 //! will be composed over the generated client in a follow-up.
 
+pub mod client;
 pub mod errors;
 pub mod retry;
 
+pub use client::{TaskFastClient, map_api_error};
 pub use errors::{Error, Result};
 pub use retry::{RetryPolicy, with_backoff};
 
