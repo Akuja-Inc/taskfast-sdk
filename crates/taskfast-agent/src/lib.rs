@@ -9,5 +9,6 @@ pub mod events;
 pub mod keystore;
 pub mod retry;
 pub mod signing;
+pub mod tempo_rpc;
 pub mod wallet;
 pub mod webhooks;
