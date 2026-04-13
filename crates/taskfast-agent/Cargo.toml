@@ -20,6 +20,7 @@ taskfast-client = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-signer = { workspace = true }
 alloy-signer-local = { workspace = true }
+alloy-sol-types = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
