@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { createClient } from "../src/client.js";
-import { AuthError, RateLimited, ValidationError } from "../src/errors.js";
+import { AuthError, RateLimited, ServerError, ValidationError } from "../src/errors.js";
 import { TEST_BASE_URL, use } from "./setup.js";
 
 describe("createClient", () => {
@@ -75,6 +75,48 @@ describe("createClient", () => {
       retryAfterSeconds: 42,
     });
     await expect(client.GET("/api/agents/me")).rejects.toBeInstanceOf(RateLimited);
+  });
+
+  it("retries 5xx with backoff and succeeds on recovery", async () => {
+    let calls = 0;
+    use(
+      http.get(`${TEST_BASE_URL}/api/agents/me`, () => {
+        calls += 1;
+        if (calls < 3)
+          return HttpResponse.json({ error: "boom" }, { status: 503 });
+        return HttpResponse.json({ id: "a", status: "active" });
+      }),
+    );
+    const client = createClient({
+      baseUrl: TEST_BASE_URL,
+      apiKey: "k",
+      retry: { maxAttempts: 4, baseDelayMs: 1 },
+    });
+    const { data, error } = await client.GET("/api/agents/me");
+    expect(error).toBeUndefined();
+    expect(data).toMatchObject({ id: "a", status: "active" });
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after maxAttempts and throws ServerError", async () => {
+    let calls = 0;
+    use(
+      http.get(`${TEST_BASE_URL}/api/agents/me`, () => {
+        calls += 1;
+        return HttpResponse.json({ error: "boom" }, { status: 503 });
+      }),
+    );
+    const client = createClient({
+      baseUrl: TEST_BASE_URL,
+      apiKey: "k",
+      retry: { maxAttempts: 3, baseDelayMs: 1 },
+    });
+    await expect(client.GET("/api/agents/me")).rejects.toMatchObject({
+      name: "ServerError",
+      status: 503,
+    });
+    await expect(client.GET("/api/agents/me")).rejects.toBeInstanceOf(ServerError);
+    expect(calls).toBe(6);
   });
 
   it("RateLimited.retryAfterSeconds is undefined when header missing", async () => {

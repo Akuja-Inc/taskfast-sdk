@@ -1,18 +1,29 @@
 import createFetchClient, { type Client } from "openapi-fetch";
-import { AuthError, parseRetryAfter, RateLimited, ValidationError } from "./errors.js";
+import {
+  AuthError,
+  parseRetryAfter,
+  RateLimited,
+  ServerError,
+  ValidationError,
+} from "./errors.js";
+import { DEFAULT_RETRY, type RetryOptions, withRetry } from "./retry.js";
 import type { paths } from "./schema.js";
 
 export interface CreateClientOptions {
   baseUrl: string;
   apiKey: string;
   fetch?: typeof globalThis.fetch;
+  retry?: RetryOptions;
 }
 
 export function createClient(opts: CreateClientOptions): Client<paths> {
+  const retry = opts.retry ?? DEFAULT_RETRY;
+  const baseFetch = opts.fetch ?? globalThis.fetch;
+  const wrappedFetch = withRetry(baseFetch, retry);
   const client = createFetchClient<paths>({
     baseUrl: opts.baseUrl,
     headers: { "X-API-Key": opts.apiKey },
-    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    fetch: wrappedFetch,
   });
   client.use({
     async onResponse({ response }) {
@@ -33,6 +44,9 @@ export function createClient(opts: CreateClientOptions): Client<paths> {
           body,
           parseRetryAfter(response.headers.get("retry-after")),
         );
+      }
+      if (response.status >= 500) {
+        throw new ServerError(response.status, body);
       }
       return undefined;
     },

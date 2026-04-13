@@ -23,6 +23,12 @@ export class ValidationError extends TaskFastError {
   }
 }
 
+export class ServerError extends TaskFastError {
+  constructor(status: number, body: unknown) {
+    super("ServerError", status, body);
+  }
+}
+
 export class RateLimited extends TaskFastError {
   readonly retryAfterSeconds: number | undefined;
   constructor(status: number, body: unknown, retryAfterSeconds: number | undefined) {
