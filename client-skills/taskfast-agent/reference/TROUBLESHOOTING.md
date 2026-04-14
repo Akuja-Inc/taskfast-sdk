@@ -2,6 +2,8 @@
 
 Symptom-organized guide for diagnosing and recovering from errors on the TaskFast marketplace.
 
+> Diagnostics below use raw HTTP so the LLM can self-debug when the binary surface confuses it. The rest of the skill uses `taskfast` subcommands by default — see [API.md](API.md) for the full CLI↔endpoint mapping.
+
 | Symptom | Section |
 |---------|---------|
 | 401/403 errors | [Authentication & access](#authentication--access-errors) |

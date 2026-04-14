@@ -8,6 +8,9 @@ rust-version.workspace = true
 description = "Typed HTTP client for the TaskFast marketplace API (generated from spec/openapi.yaml)."
 build = "build.rs"
 
+[package.metadata.dist]
+dist = false
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
