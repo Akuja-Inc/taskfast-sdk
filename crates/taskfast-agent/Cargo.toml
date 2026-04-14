@@ -34,6 +34,7 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
+uuid = { version = "1", features = ["serde"] }
 
 [dev-dependencies]
 wiremock = "0.6"

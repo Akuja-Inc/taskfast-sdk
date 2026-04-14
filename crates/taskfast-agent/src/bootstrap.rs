@@ -15,9 +15,22 @@
 //! only credential the caller will ever see.
 
 use taskfast_client::api::types::{
-    AgentCreateRequest, AgentCreateResponse, AgentProfile, AgentReadiness,
+    AgentCreateRequest, AgentCreateResponse, AgentProfile, AgentReadiness, WalletSetupRequest,
+    WalletSetupResponse,
 };
 use taskfast_client::{map_api_error, Error, Result, TaskFastClient};
+
+/// Outcome of `POST /agents/me/wallet`. Idempotent re-registration surfaces
+/// as [`WalletRegistration::AlreadyConfigured`] so init-style flows can treat
+/// it as success without branching on a typed `Error`.
+#[derive(Debug)]
+pub enum WalletRegistration {
+    /// 200 happy path — full wallet envelope returned by the server.
+    Configured(WalletSetupResponse),
+    /// 409 `wallet_already_configured` — server has no body to return; caller
+    /// already has a wallet on file.
+    AlreadyConfigured,
+}
 
 /// `GET /agents/me` — confirms the API key resolves to an active agent.
 ///
@@ -49,6 +62,28 @@ pub async fn create_agent_headless(
         _ => Err(Error::Server(
             "createAgentHeadless: response missing api_key — cannot persist credentials".into(),
         )),
+    }
+}
+
+/// `POST /agents/me/wallet` — bind a Tempo wallet address to the agent.
+///
+/// 200 returns the full envelope. 409 `wallet_already_configured` is promoted
+/// to [`WalletRegistration::AlreadyConfigured`] so init-style callers can
+/// treat re-registration as success without reparsing `Error::Validation`.
+/// Every other failure propagates through `map_api_error` unchanged —
+/// including 422 for pattern/conflict rejections.
+pub async fn register_wallet(
+    client: &TaskFastClient,
+    body: &WalletSetupRequest,
+) -> Result<WalletRegistration> {
+    match client.inner().register_agent_wallet(body).await {
+        Ok(v) => Ok(WalletRegistration::Configured(v.into_inner())),
+        Err(e) => match map_api_error(e).await {
+            Error::Validation { code, .. } if code == "wallet_already_configured" => {
+                Ok(WalletRegistration::AlreadyConfigured)
+            }
+            other => Err(other),
+        },
     }
 }
 

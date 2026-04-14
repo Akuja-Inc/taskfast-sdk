@@ -13,6 +13,7 @@ pub mod bootstrap;
 pub mod events;
 pub mod faucet;
 pub mod keystore;
+pub mod poster;
 pub mod retry;
 pub mod signing;
 pub mod tempo_rpc;

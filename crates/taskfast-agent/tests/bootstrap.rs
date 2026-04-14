@@ -8,8 +8,10 @@
 //! bootstrap-layer invariant that can't fall through to the client's error
 //! machinery — it gates a successful 201 response.
 
-use taskfast_agent::bootstrap::{create_agent_headless, get_readiness, validate_auth};
-use taskfast_client::api::types::AgentCreateRequest;
+use taskfast_agent::bootstrap::{
+    create_agent_headless, get_readiness, register_wallet, validate_auth, WalletRegistration,
+};
+use taskfast_client::api::types::{AgentCreateRequest, WalletSetupRequest};
 use taskfast_client::{Error, TaskFastClient};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -127,6 +129,94 @@ async fn create_agent_headless_fails_when_api_key_empty_string() {
     match create_agent_headless(&client(&server), &sample_create_request()).await {
         Err(Error::Server(m)) => assert!(m.contains("missing api_key")),
         other => panic!("empty api_key must fail, got {other:?}"),
+    }
+}
+
+fn sample_wallet_request() -> WalletSetupRequest {
+    WalletSetupRequest {
+        tempo_wallet_address: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
+            .try_into()
+            .expect("valid addr"),
+    }
+}
+
+#[tokio::test]
+async fn register_wallet_returns_configured_on_200() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/agents/me/wallet"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "payment_method": "tempo",
+            "payout_method": "tempo_wallet",
+            "ready_to_work": true,
+            "tempo_wallet_address": "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+        })))
+        .mount(&server)
+        .await;
+
+    match register_wallet(&client(&server), &sample_wallet_request()).await {
+        Ok(WalletRegistration::Configured(r)) => {
+            assert!(r.ready_to_work);
+            assert_eq!(
+                r.tempo_wallet_address,
+                "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
+            );
+        }
+        other => panic!("expected Configured, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn register_wallet_treats_409_already_configured_as_idempotent_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/agents/me/wallet"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+            "error": "wallet_already_configured",
+            "message": "agent already has a tempo wallet configured",
+        })))
+        .mount(&server)
+        .await;
+
+    match register_wallet(&client(&server), &sample_wallet_request()).await {
+        Ok(WalletRegistration::AlreadyConfigured) => {}
+        other => panic!("expected AlreadyConfigured, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn register_wallet_propagates_other_validation_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/agents/me/wallet"))
+        .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
+            "error": "invalid_wallet_address",
+            "message": "wallet address does not match pattern",
+        })))
+        .mount(&server)
+        .await;
+
+    match register_wallet(&client(&server), &sample_wallet_request()).await {
+        Err(Error::Validation { code, .. }) => assert_eq!(code, "invalid_wallet_address"),
+        other => panic!("expected Validation, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn register_wallet_401_surfaces_auth() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/agents/me/wallet"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": "invalid_api_key",
+            "message": "bad key",
+        })))
+        .mount(&server)
+        .await;
+
+    match register_wallet(&client(&server), &sample_wallet_request()).await {
+        Err(Error::Auth(_)) => {}
+        other => panic!("expected Auth, got {other:?}"),
     }
 }
 
