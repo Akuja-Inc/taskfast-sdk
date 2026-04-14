@@ -25,6 +25,7 @@ pub use retry::{with_backoff, RetryPolicy};
     clippy::all,
     clippy::pedantic,
     dead_code,
+    irrefutable_let_patterns,
     missing_docs,
     non_camel_case_types,
     non_snake_case,
