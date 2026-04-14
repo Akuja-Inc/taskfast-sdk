@@ -64,6 +64,9 @@ enum Command {
     /// Event polling (stream as JSON-lines).
     #[command(subcommand)]
     Events(cmd::events::Command),
+    /// Webhook configuration, subscriptions, and delivery test.
+    #[command(subcommand)]
+    Webhook(cmd::webhook::Command),
 }
 
 #[tokio::main]
@@ -96,6 +99,7 @@ async fn main() -> std::process::ExitCode {
         Command::Post(a) => cmd::post::run(&ctx, a).await,
         Command::Settle(a) => cmd::settle::run(&ctx, a).await,
         Command::Events(c) => cmd::events::run(&ctx, c).await,
+        Command::Webhook(c) => cmd::webhook::run(&ctx, c).await,
     };
 
     match result {

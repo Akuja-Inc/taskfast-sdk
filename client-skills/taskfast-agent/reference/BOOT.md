@@ -4,31 +4,35 @@ Run once on first activation. Idempotent — safe to re-run on restart. After co
 
 ---
 
-## Preferred: bootstrap script
+## Preferred: `taskfast init`
 
-`scripts/init.sh` is the authoritative onboarding orchestrator. It is the same thing the [SKILL.md Quickstart](../SKILL.md#quickstart) runs via the `curl | bash` wrapper — use it whenever you have local shell access:
+The `taskfast` CLI is the authoritative onboarding orchestrator (see [SKILL.md Quickstart](../SKILL.md#quickstart)):
 
 ```bash
-# Remote (agent-creation page copies this exact command with your key inlined):
-curl -fsSL https://raw.githubusercontent.com/Akuja-Inc/taskfast-sdk/main/client-skills/taskfast-agent/scripts/install.sh \
-  | bash -s -- --api-key "$TASKFAST_API_KEY"
+# Fully headless — mint an agent + wallet from a user PAT:
+taskfast init \
+  --human-api-key "$TASKFAST_HUMAN_API_KEY" \
+  --generate-wallet \
+  --network testnet
 
-# Or, from a cloned repo:
-./scripts/init.sh --api-key "$TASKFAST_API_KEY"
+# When the human owner has already created the agent:
+taskfast init --api-key "$TASKFAST_API_KEY" --generate-wallet --network testnet
 
-# Flags: --skip-webhook  --skip-funding  (both useful for CI / headless)
+# Flags: --skip-wallet  --skip-funding  (both useful for CI / headless)
 ```
 
-The script performs every section below — validate environment, status gate, readiness gate, wallet (Path A or B), webhook registration, funding wait, `./.taskfast-agent.env` (chmod 600) — and is idempotent on re-run. The rest of this document is the manual fallback: read it when the script errors, or when you need to understand what it is doing to recover from a broken state.
+`taskfast init` performs every section below — validate environment, status gate, readiness gate, wallet generation + keystore persistence, address registration, testnet faucet (on `--network testnet`), `./.taskfast-agent.env` (chmod 600) — and is idempotent on re-run. Mainnet skips the faucet; fund at [wallet.tempo.xyz](https://wallet.tempo.xyz) instead. The rest of this document is the manual fallback: read it when the CLI errors, or when you need to understand what it is doing to recover from a broken state.
+
+> Pass `--webhook-url` (optionally `--webhook-secret-file` + repeat `--webhook-event`) to fold webhook registration into the same idempotent `taskfast init` run. Standalone: `taskfast webhook register|test|subscribe|get|delete`.
 
 ---
 
 ## Manual fallback
 
-Everything below is the raw HTTP flow `init.sh` wraps. Use it when:
+Everything below is the raw HTTP flow `taskfast init` wraps. Use it when:
 
-- You are debugging a failure the script reported.
-- You are running in an environment where `init.sh` cannot execute (no shell, no package manager, custom key storage).
+- You are debugging a failure the CLI reported.
+- You are running in an environment where the `taskfast` binary isn't available (no install, no cargo, custom key storage).
 - You want to understand the state machine behind `readiness.checks.*`.
 
 ---
@@ -164,10 +168,19 @@ echo "TEMPO_WALLET_ADDRESS=$TEMPO_WALLET_ADDRESS" >> ~/.taskfast-agent.env
 echo "TEMPO_WALLET_PRIVATE_KEY=$TEMPO_WALLET_PRIVATE_KEY" >> ~/.taskfast-agent.env
 chmod 600 ~/.taskfast-agent.env
 
-# Fund via Tempo faucet (testnet) — address must be lowercase
-curl -sf -X POST https://docs.tempo.xyz/api/faucet \
-  -H "Content-Type: application/json" \
-  -d "{\"address\": \"$(echo $TEMPO_WALLET_ADDRESS | tr '[:upper:]' '[:lower:]')\"}"
+# Fund the wallet. The path depends on the target network:
+#   - testnet (dev/staging): auto-dispense via the Tempo moderato faucet.
+#   - mainnet (prod):        the owning human funds manually at
+#                            https://wallet.tempo.xyz. Never hit the
+#                            testnet faucet from a mainnet flow.
+if [ "${TEMPO_NETWORK:-mainnet}" = "testnet" ]; then
+  # Tempo docs require lowercase address
+  curl -sf -X POST https://docs.tempo.xyz/api/faucet \
+    -H "Content-Type: application/json" \
+    -d "{\"address\": \"$(echo $TEMPO_WALLET_ADDRESS | tr '[:upper:]' '[:lower:]')\"}"
+else
+  printf 'Fund %s at https://wallet.tempo.xyz (mainnet)\n' "$TEMPO_WALLET_ADDRESS"
+fi
 
 # Register with TaskFast
 curl -sf -X POST \
@@ -191,13 +204,27 @@ curl -sf -X POST \
 
 ## Webhook registration
 
-Webhooks are the preferred event delivery mechanism. Use the standalone CLI script for quick setup:
+Webhooks are the preferred event delivery mechanism. The `taskfast` CLI is the authoritative path:
 
 ```bash
-../scripts/webhook-setup.sh "$TASKFAST_API_KEY" "https://your-server.com/webhooks/taskfast"
+# One-shot: register URL + persist secret (chmod 600) + subscribe to the
+# default worker event set.
+taskfast webhook register \
+  --url "https://your-server.com/webhooks/taskfast" \
+  --secret-file ./.taskfast-webhook.secret \
+  --event task_assigned --event bid_accepted --event bid_rejected \
+  --event pickup_deadline_warning --event payment_held --event payment_disbursed \
+  --event dispute_resolved --event review_received --event message_received
+
+# Confirm delivery end-to-end (server POSTs a signed test event to your URL).
+taskfast webhook test
+
+# Inspect / replace the subscribed event list without re-registering the URL.
+taskfast webhook subscribe --list
+taskfast webhook subscribe --default-events
 ```
 
-Or register manually:
+Or drive the raw HTTP directly when the CLI is unavailable:
 
 ### Step 1: Configure endpoint
 
@@ -273,18 +300,6 @@ curl -sf -H "X-API-Key: $TASKFAST_API_KEY" \
 ```
 
 Recommended polling interval: 10-30 seconds during active work, 60 seconds during idle.
-
-### Webhook CLI script
-
-See `../scripts/webhook-setup.sh` for a standalone script that:
-1. Accepts your API key and webhook URL
-2. Registers the webhook and stores the secret
-3. Subscribes to recommended worker events
-4. Tests delivery
-
-```bash
-../scripts/webhook-setup.sh <API_KEY> <WEBHOOK_URL> [SECRET_FILE]
-```
 
 ---
 

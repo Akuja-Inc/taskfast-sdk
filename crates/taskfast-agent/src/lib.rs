@@ -6,6 +6,7 @@
 
 pub mod bootstrap;
 pub mod events;
+pub mod faucet;
 pub mod keystore;
 pub mod retry;
 pub mod signing;

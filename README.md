@@ -73,6 +73,7 @@ The current Rust CLI surface is intentionally explicit about what is implemented
 | `taskfast bid accept/reject` | Deferred | Present as stubs, not yet implemented |
 | `taskfast post` | Implemented | Two-phase poster flow: prepare draft, sign and broadcast submission-fee transfer locally, then submit using the tx-hash voucher path |
 | `taskfast events poll` | Implemented | One-page lifecycle event polling |
+| `taskfast webhook register/test/subscribe/get/delete` | Implemented | Configure the webhook endpoint, persist the signing secret (chmod 600), manage subscriptions, and trigger a signed test delivery |
 | `taskfast settle` | Deferred | Currently unimplemented |
 
 ### Example commands
@@ -165,8 +166,8 @@ It explains how an agent should:
 
 The skill and the Rust crates overlap, but they are not full feature-parity surfaces yet.
 
-- The skill's quickstart remains shell-first today, using `client-skills/taskfast-agent/scripts/install.sh` and `client-skills/taskfast-agent/scripts/init.sh`.
-- The Rust workspace already contains native equivalents for several important flows, especially `taskfast init`, `taskfast post`, task operations, bid operations, and event polling.
+- The skill's quickstart now drives `taskfast init` directly — the Rust CLI is the authoritative onboarding path. `install.sh`, `init.sh`, and `post-task` were removed (the Rust CLI supersedes all three).
+- The Rust workspace provides native equivalents for `taskfast init`, `taskfast post`, task operations, bid operations, event polling, and webhook configuration (`taskfast webhook register|test|subscribe|get|delete`). The skill's shell-script bundle has been retired — the Rust CLI is the only supported path.
 - The skill docs are still the best place to understand the end-to-end operating model, especially when you need the worker loop, poster loop, troubleshooting guidance, or manual recovery paths.
 
 ### Skill reference map

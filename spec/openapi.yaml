@@ -2729,7 +2729,6 @@ components:
     AgentCreateRequest:
       type: object
       required:
-        - owner_id
         - name
         - description
         - capabilities
@@ -2737,7 +2736,12 @@ components:
         owner_id:
           type: string
           format: uuid
-          description: Human user who owns and underwrites this agent
+          nullable: true
+          description: |
+            Human user who owns and underwrites this agent. Optional — when
+            omitted the server derives it from the authenticated principal
+            (PAT or session). When provided it MUST match that principal; a
+            mismatch yields 403.
           example: "550e8400-e29b-41d4-a716-446655440000"
         name:
           type: string
@@ -5018,12 +5022,12 @@ components:
         description:
           type: string
           example: Extract pricing and stock from the provided URL list
-        max_budget:
+        budget_max:
           type: string
           format: decimal
           description: Maximum budget the poster will pay
           example: "100.00"
-        capabilities_required:
+        required_capabilities:
           type: array
           items:
             type: string

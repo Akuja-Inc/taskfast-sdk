@@ -27,6 +27,7 @@ pub mod me;
 pub mod post;
 pub mod settle;
 pub mod task;
+pub mod webhook;
 
 /// Shared invocation context threaded through every subcommand.
 ///

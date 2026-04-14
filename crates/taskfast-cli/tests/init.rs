@@ -38,11 +38,14 @@ fn base_args(env_file: PathBuf) -> Args {
         network: Network::Testnet,
         env_file: Some(env_file),
         skip_wallet: false,
+        skip_funding: true,
         human_api_key: None,
-        owner_id: None,
         agent_name: "taskfast-agent".into(),
         agent_description: "Headless agent registered via taskfast init".into(),
         agent_capabilities: Vec::new(),
+        webhook_url: None,
+        webhook_secret_file: None,
+        webhook_events: Vec::new(),
     }
 }
 
@@ -337,7 +340,6 @@ async fn generate_wallet_with_password_file_persists_keystore_and_registers() {
 
 // ---- am-z58: --human-api-key headless mint path ----
 
-const OWNER_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
 const MINTED_AGENT_ID: &str = "11111111-1111-1111-1111-111111111111";
 const MINTED_KEY: &str = "am_live_minted_0123456789abcdef";
 
@@ -345,11 +347,11 @@ const MINTED_KEY: &str = "am_live_minted_0123456789abcdef";
 async fn human_api_key_mints_agent_then_continues_with_returned_key() {
     let server = MockServer::start().await;
 
-    // POST /agents — PAT-authed mint. Body must carry the required fields.
+    // POST /agents — PAT-authed mint. Body carries the required fields;
+    // owner_id is derived server-side from the PAT, so the CLI omits it.
     Mock::given(method("POST"))
         .and(path("/api/agents"))
         .and(body_partial_json(json!({
-            "owner_id": OWNER_ID,
             "name": "taskfast-agent",
             "capabilities": ["general"],
         })))
@@ -368,7 +370,6 @@ async fn human_api_key_mints_agent_then_continues_with_returned_key() {
     let env_path = tmp.path().join(".taskfast-agent.env");
     let mut args = base_args(env_path.clone());
     args.human_api_key = Some("tf_user_test".into());
-    args.owner_id = Some(OWNER_ID.into());
 
     // Ctx carries no agent key — forces the mint branch.
     let envelope = run(&ctx_for(&server, None, false), args)
@@ -386,24 +387,6 @@ async fn human_api_key_mints_agent_then_continues_with_returned_key() {
 }
 
 #[tokio::test]
-async fn human_api_key_without_owner_id_errors_usage() {
-    let server = MockServer::start().await;
-    // No mocks mounted — we expect failure before any HTTP.
-    let tmp = TempDir::new().unwrap();
-    let mut args = base_args(tmp.path().join(".env"));
-    args.human_api_key = Some("tf_user_test".into());
-    // owner_id intentionally unset
-
-    let err = run(&ctx_for(&server, None, false), args)
-        .await
-        .expect_err("missing owner_id → Usage");
-    match err {
-        CmdError::Usage(msg) => assert!(msg.contains("--owner-id"), "msg: {msg}"),
-        other => panic!("expected Usage, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn dry_run_human_api_key_reports_would_mint_and_skips_post() {
     let server = MockServer::start().await;
     // Any HTTP hit would 404 and the envelope would be an error, not ok.
@@ -411,7 +394,6 @@ async fn dry_run_human_api_key_reports_would_mint_and_skips_post() {
     let env_path = tmp.path().join(".env");
     let mut args = base_args(env_path.clone());
     args.human_api_key = Some("tf_user_test".into());
-    args.owner_id = Some(OWNER_ID.into());
 
     let envelope = run(&ctx_for(&server, None, true), args)
         .await
@@ -420,7 +402,8 @@ async fn dry_run_human_api_key_reports_would_mint_and_skips_post() {
     let v = envelope_value(&envelope);
     assert_eq!(v["dry_run"], true);
     assert_eq!(v["data"]["agent"]["action"], "would_mint");
-    assert_eq!(v["data"]["agent"]["owner_id"], OWNER_ID);
+    assert!(v["data"]["agent"].get("owner_id").is_none(),
+        "dry-run envelope should not carry owner_id — it is server-derived");
     assert_eq!(v["data"]["env_file"]["written"], false);
     assert_eq!(v["data"]["env_file"]["would_write"], true);
     assert!(!env_path.exists(), "dry-run must not write env file");
@@ -443,7 +426,6 @@ async fn existing_env_file_key_takes_precedence_over_human_api_key() {
 
     let mut args = base_args(env_path.clone());
     args.human_api_key = Some("tf_user_should_be_ignored".into());
-    args.owner_id = Some(OWNER_ID.into());
 
     let envelope = run(&ctx_for(&server, None, false), args)
         .await

@@ -59,7 +59,7 @@ pub struct Args {
     pub description: String,
 
     /// Max budget the poster will pay, as a decimal string ("2.50"). Passed
-    /// through as `max_budget` on the draft.
+    /// through as `budget_max` on the draft.
     #[arg(long)]
     pub budget: Option<String>,
 
@@ -183,13 +183,13 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
 
     let prep_body = TaskDraftPrepareRequest {
         assignment_type: args.assignment_type.into(),
-        capabilities_required: args.capabilities.clone(),
+        budget_max: args.budget.clone(),
         description: args.description.clone(),
         direct_agent_id,
         execution_deadline,
-        max_budget: args.budget.clone(),
         pickup_deadline,
         poster_wallet_address: poster_wallet,
+        required_capabilities: args.capabilities.clone(),
         title: args.title.clone(),
     };
 
@@ -207,8 +207,8 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
                 "draft_id": serde_json::Value::Null,
                 "title": args.title,
                 "assignment_type": args.assignment_type.as_str(),
-                "capabilities": args.capabilities,
-                "max_budget": args.budget,
+                "budget_max": args.budget,
+                "required_capabilities": args.capabilities,
                 "rpc_url": rpc_url,
                 "wallet_address": wallet_address,
             }),

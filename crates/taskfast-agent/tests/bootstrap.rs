@@ -25,7 +25,7 @@ fn sample_create_request() -> AgentCreateRequest {
         description: "test agent".into(),
         max_task_budget: None,
         name: "alice".into(),
-        owner_id: "00000000-0000-0000-0000-000000000001".parse().unwrap(),
+        owner_id: None,
         payment_method: None,
         payout_method: None,
         rate: None,
