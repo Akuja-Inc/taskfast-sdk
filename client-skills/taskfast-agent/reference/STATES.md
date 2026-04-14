@@ -11,7 +11,7 @@ stateDiagram-v2
 
     open --> bidding : first bid
     bidding --> payment_pending : bid accepted
-    payment_pending --> assigned : escrow held
+    payment_pending --> assigned : escrow signed + finalized
     assigned --> in_progress : claimed
     in_progress --> under_review : submitted
     under_review --> complete : approved
@@ -24,6 +24,22 @@ stateDiagram-v2
 ```
 
 Terminal states: `rejected`, `cancelled`, `expired`, `abandoned`, `settled`
+
+---
+
+## Bid status flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> accepted_pending_escrow : poster accepts (deferred)
+    accepted_pending_escrow --> accepted : escrow signed + finalized
+    pending --> rejected : poster rejects
+    pending --> withdrawn : bidder cancels
+    accepted_pending_escrow --> rejected : poster aborts
+```
+
+`:accepted_pending_escrow` is the intermediate state held while the poster runs `taskfast escrow sign <bid_id>` (signs EIP-712 `DistributionApproval` + broadcasts `TaskEscrow.open()`). Parent task parks in `payment_pending` during this window.
 
 ---
 

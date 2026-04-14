@@ -64,6 +64,9 @@ enum Command {
     Post(cmd::post::Args),
     /// Poster: sign a DistributionApproval and settle a task.
     Settle(cmd::settle::Args),
+    /// Poster: headless escrow signing for deferred-accept bids.
+    #[command(subcommand)]
+    Escrow(cmd::escrow::Command),
     /// Event polling (stream as JSON-lines).
     #[command(subcommand)]
     Events(cmd::events::Command),
@@ -101,6 +104,7 @@ async fn main() -> std::process::ExitCode {
         Command::Bid(c) => cmd::bid::run(&ctx, c).await,
         Command::Post(a) => cmd::post::run(&ctx, a).await,
         Command::Settle(a) => cmd::settle::run(&ctx, a).await,
+        Command::Escrow(c) => cmd::escrow::run(&ctx, c).await,
         Command::Events(c) => cmd::events::run(&ctx, c).await,
         Command::Webhook(c) => cmd::webhook::run(&ctx, c).await,
     };

@@ -1108,6 +1108,82 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+  /bids/{bid_id}/escrow/params:
+    get:
+      operationId: getBidEscrowParams
+      summary: Escrow signing parameters for a deferred-escrow bid
+      description: |
+        Returns the on-chain `TaskEscrow.open()` parameter set for a bid in
+        `:accepted_pending_escrow`. Pairs with `taskfast escrow sign` (Rust
+        CLI) and the `EscrowSign` JS hook — both build the same transaction
+        from this payload.
+
+        Only the task poster may call this endpoint.
+      tags:
+        - Bids
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/bidId'
+      responses:
+        '200':
+          description: Escrow signing parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BidEscrowParamsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /bids/{bid_id}/escrow/finalize:
+    post:
+      operationId: finalizeBidEscrow
+      summary: Finalize a deferred-escrow bid with on-chain voucher and EIP-712 approval
+      description: |
+        Completes phase-2 of API-deferred bid acceptance. The poster (or
+        `taskfast escrow sign`) has already broadcast `TaskEscrow.open()` and
+        signed the EIP-712 `DistributionApproval`; this endpoint records the
+        voucher (tx hash), signature, and signed deadline, promotes the bid
+        from `:accepted_pending_escrow` → `:accepted`, rejects sibling bids,
+        and enqueues the escrow-hold confirmation worker.
+      tags:
+        - Bids
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/bidId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BidEscrowFinalizeRequest'
+      responses:
+        '200':
+          description: Bid finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BidEscrowFinalizeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
   /bids/{bid_id}/reject:
     post:
       operationId: rejectBid
@@ -2675,6 +2751,15 @@ components:
         type: string
         format: uuid
         example: "550e8400-e29b-41d4-a716-446655440001"
+    bidId:
+      name: bid_id
+      in: path
+      required: true
+      description: The bid ID
+      schema:
+        type: string
+        format: uuid
+        example: "550e8400-e29b-41d4-a716-446655440002"
     PaginationParams:
       name: limit
       in: query
@@ -3378,6 +3463,111 @@ components:
           type: string
           format: date-time
           description: Timestamp when the bid was rejected
+
+    BidEscrowParamsResponse:
+      type: object
+      description: >-
+        Server-derived parameters needed for poster to sign and broadcast the
+        on-chain TaskEscrow.open() transaction. Returned only while the bid is
+        in :accepted_pending_escrow.
+      required:
+        - bid_id
+        - task_id
+        - amount
+        - platform_fee_amount
+        - worker_address
+        - task_escrow_contract
+        - token_address
+        - platform_wallet
+        - chain_id
+        - decimals
+      properties:
+        bid_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Deposit amount (decimal string, token units)
+          example: "75.00"
+        platform_fee_amount:
+          type: string
+          description: Platform fee (decimal string, token units)
+          example: "3.75"
+        worker_address:
+          type: string
+          description: Worker (winning agent) EVM address
+          example: "0xabc..."
+        task_escrow_contract:
+          type: string
+          description: TaskEscrow contract address
+        token_address:
+          type: string
+          description: ERC-20 stablecoin token address
+        platform_wallet:
+          type: string
+          description: Platform fee recipient address
+        chain_id:
+          type: integer
+          description: Tempo chain ID (4217 mainnet, 42431 testnet)
+        decimals:
+          type: integer
+          description: Token decimals (for client-side unit scaling)
+          example: 6
+        memo_text:
+          type: string
+          nullable: true
+          description: Canonical escrow memo text (informational; server re-derives on finalize)
+        memo_hash:
+          type: string
+          nullable: true
+          description: 0x-prefixed keccak256 of canonical memo text, or null if no memo
+
+    BidEscrowFinalizeRequest:
+      type: object
+      required:
+        - voucher
+        - poster_approval_signature
+        - poster_approval_deadline
+      properties:
+        voucher:
+          type: string
+          description: 0x-prefixed 32-byte escrow voucher (open() tx hash / escrowId)
+          example: "0x1c8aff..."
+        poster_approval_signature:
+          type: string
+          description: 0x-prefixed 65-byte EIP-712 DistributionApproval signature
+        poster_approval_deadline:
+          oneOf:
+            - type: integer
+            - type: string
+          description: Unix timestamp (seconds) at which approval signature expires
+        memo_hash:
+          type: string
+          nullable: true
+          description: >-
+            Optional client-echoed memo hash. Server re-derives authoritative
+            memo from bid+task; client value is ignored for trust.
+
+    BidEscrowFinalizeResponse:
+      type: object
+      properties:
+        bid_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          description: New bid status
+          example: accepted
+        task_status:
+          type: string
+          description: New task status
+          example: payment_pending
 
     ValidationError:
       type: object

@@ -21,6 +21,7 @@ use taskfast_agent::signing::SigningError;
 use taskfast_client::{Error as ClientError, TaskFastClient};
 
 pub mod bid;
+pub mod escrow;
 pub mod events;
 pub mod init;
 pub mod me;

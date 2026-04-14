@@ -149,6 +149,77 @@ impl TempoRpcClient {
         parse_hex_u64(&raw)
     }
 
+    /// `eth_call({to, data}, "latest")` → returned bytes.
+    ///
+    /// Used for view-only calls (ERC-20 `allowance` / `balanceOf`, etc.) where
+    /// we need to read chain state without broadcasting a tx.
+    pub async fn eth_call(&self, to: Address, data: &Bytes) -> Result<Vec<u8>, RpcError> {
+        let raw: String = self
+            .call(
+                "eth_call",
+                json!([
+                    {
+                        "to": format!("{to:#x}"),
+                        "data": format!("0x{}", hex::encode(data)),
+                    },
+                    "latest",
+                ]),
+            )
+            .await?;
+        decode_0x(&raw)
+    }
+
+    /// `eth_getTransactionReceipt(tx_hash)` → `Some(status_ok)` once mined,
+    /// `None` if still pending.
+    ///
+    /// Returns `Ok(Some(true))` when the receipt's `status` field is `0x1`,
+    /// `Ok(Some(false))` on `0x0` (reverted), `Ok(None)` if the receipt is
+    /// not yet available.
+    pub async fn transaction_receipt_status(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<Option<bool>, RpcError> {
+        let hash_hex = format!("{tx_hash:#x}");
+        let value: Value = self
+            .call("eth_getTransactionReceipt", json!([hash_hex]))
+            .await?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        let status = value
+            .get("status")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::Decode("receipt missing status field".into()))?;
+        let ok = parse_hex_u64(status)? == 1;
+        Ok(Some(ok))
+    }
+
+    /// Poll `eth_getTransactionReceipt` until mined or `timeout` elapses.
+    ///
+    /// Returns `Ok(true)` on `status == 0x1`, `Ok(false)` on revert, and
+    /// `Err(RpcError::Decode)` on timeout. Caller maps the timeout to the
+    /// command-level error variant (poster path wants `CmdError::Server`).
+    pub async fn wait_for_receipt(
+        &self,
+        tx_hash: TxHash,
+        timeout: std::time::Duration,
+        interval: std::time::Duration,
+    ) -> Result<bool, RpcError> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if let Some(ok) = self.transaction_receipt_status(tx_hash).await? {
+                return Ok(ok);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(RpcError::Decode(format!(
+                    "receipt for {tx_hash:#x} not mined within {:?}",
+                    timeout
+                )));
+            }
+            tokio::time::sleep(interval).await;
+        }
+    }
+
     /// `eth_sendRawTransaction(0x<rlp>)` → tx hash.
     pub async fn send_raw_transaction(&self, raw_tx: &[u8]) -> Result<TxHash, RpcError> {
         let hex_str = format!("0x{}", hex::encode(raw_tx));
@@ -198,37 +269,36 @@ impl TempoRpcClient {
     }
 }
 
-/// Sign `calldata` as an ERC-20 `transfer` tx to `token_address`, broadcast
-/// it, and return the resulting tx hash. The hash is the `submission_fee_voucher`
-/// value for `POST /api/task_drafts/{id}/submit` (server polls for confirmation).
+/// Sign `calldata` as a legacy tx targeting `to`, broadcast it, return tx hash.
+///
+/// Generalization of `sign_and_broadcast_erc20_transfer`: used by the poster's
+/// `taskfast escrow sign` flow for both `IERC20.approve` (target = token) and
+/// `TaskEscrow.open(...)` (target = escrow contract).
 ///
 /// Fetches chain_id + nonce + gas_price + gas_limit (`eth_estimateGas` with a
 /// 30% buffer) from the RPC.
-pub async fn sign_and_broadcast_erc20_transfer(
+pub async fn sign_and_broadcast_tx(
     rpc: &TempoRpcClient,
     signer: &PrivateKeySigner,
-    token_address: Address,
+    to: Address,
     calldata: Bytes,
 ) -> Result<TxHash, RpcError> {
-    let raw = sign_erc20_transfer(rpc, signer, token_address, calldata).await?;
+    let raw = sign_tx(rpc, signer, to, calldata).await?;
     rpc.send_raw_transaction(&raw).await
 }
 
-/// Build + sign an ERC-20 transfer tx without broadcasting. The returned bytes
-/// are the raw RLP-encoded signed tx — suitable to hand the server verbatim
-/// as the voucher (the "raw-signed-tx" voucher form).
-pub async fn sign_erc20_transfer(
+/// Build + sign a legacy tx targeting `to` without broadcasting. Returns the
+/// raw RLP-encoded signed tx — suitable for dry-runs or server-broadcast flows.
+pub async fn sign_tx(
     rpc: &TempoRpcClient,
     signer: &PrivateKeySigner,
-    token_address: Address,
+    to: Address,
     calldata: Bytes,
 ) -> Result<Vec<u8>, RpcError> {
     let chain_id = rpc.chain_id().await?;
     let nonce = rpc.pending_nonce(signer.address()).await?;
     let gas_price = rpc.gas_price().await?;
-    let estimate = rpc
-        .estimate_gas(signer.address(), token_address, &calldata)
-        .await?;
+    let estimate = rpc.estimate_gas(signer.address(), to, &calldata).await?;
     let gas_limit = estimate.saturating_mul(GAS_ESTIMATE_BUFFER_NUM) / GAS_ESTIMATE_BUFFER_DEN;
 
     let tx = TxLegacy {
@@ -236,7 +306,7 @@ pub async fn sign_erc20_transfer(
         nonce,
         gas_price,
         gas_limit,
-        to: TxKind::Call(token_address),
+        to: TxKind::Call(to),
         value: U256::ZERO,
         input: calldata,
     };
@@ -247,6 +317,28 @@ pub async fn sign_erc20_transfer(
     let signed = tx.into_signed(sig);
     let envelope = TxEnvelope::Legacy(signed);
     Ok(envelope.encoded_2718())
+}
+
+/// Thin ERC-20 wrapper around [`sign_and_broadcast_tx`]. The returned hash is
+/// the `submission_fee_voucher` for `POST /api/task_drafts/{id}/submit`.
+pub async fn sign_and_broadcast_erc20_transfer(
+    rpc: &TempoRpcClient,
+    signer: &PrivateKeySigner,
+    token_address: Address,
+    calldata: Bytes,
+) -> Result<TxHash, RpcError> {
+    sign_and_broadcast_tx(rpc, signer, token_address, calldata).await
+}
+
+/// Thin ERC-20 wrapper around [`sign_tx`]. Returns raw RLP bytes for the
+/// "raw-signed-tx" voucher form.
+pub async fn sign_erc20_transfer(
+    rpc: &TempoRpcClient,
+    signer: &PrivateKeySigner,
+    token_address: Address,
+    calldata: Bytes,
+) -> Result<Vec<u8>, RpcError> {
+    sign_tx(rpc, signer, token_address, calldata).await
 }
 
 fn parse_hex_u64(s: &str) -> Result<u64, RpcError> {

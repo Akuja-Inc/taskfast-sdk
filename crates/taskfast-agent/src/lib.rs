@@ -10,6 +10,7 @@
 #![allow(missing_docs)]
 
 pub mod bootstrap;
+pub mod chain;
 pub mod events;
 pub mod faucet;
 pub mod keystore;

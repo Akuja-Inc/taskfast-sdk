@@ -3457,10 +3457,12 @@ version = "0.2.0"
 dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
+ "alloy-sol-types",
  "anyhow",
  "chrono",
  "clap",
  "hex",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",

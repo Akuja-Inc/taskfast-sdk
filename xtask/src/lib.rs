@@ -290,7 +290,11 @@ fn operation_is_multipart_only(op: &Value) -> bool {
         return false;
     };
     let keys: Vec<&str> = content.keys().filter_map(Value::as_str).collect();
-    keys.len() == 1 && keys[0] == "multipart/form-data"
+    // Match either (a) sole multipart variant or (b) any operation that
+    // declares multipart alongside other variants — progenitor 0.9 trips on
+    // multi-variant bodies too (`more media types than expected`), and the
+    // upload path is hand-rolled in taskfast-client regardless.
+    keys.contains(&"multipart/form-data")
 }
 
 /// Structural projection: strip doc-only fields so two schemas differing only
