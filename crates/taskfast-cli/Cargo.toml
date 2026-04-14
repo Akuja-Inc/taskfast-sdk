@@ -7,6 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 description = "`taskfast` CLI: worker + poster hot-loop operations, JSON-envelope output."
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "taskfast"
 path = "src/main.rs"

@@ -9,8 +9,8 @@ use taskfast_agent::webhooks::{
     configure_webhook, delete_webhook, get_subscriptions, get_webhook, test_webhook,
     update_subscriptions,
 };
-use taskfast_client::TaskFastClient;
 use taskfast_client::api::types::WebhookConfigRequest;
+use taskfast_client::TaskFastClient;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -115,9 +115,7 @@ async fn test_webhook_returns_delivery_receipt() {
         .mount(&server)
         .await;
 
-    let receipt = test_webhook(&client(&server))
-        .await
-        .expect("200 decodes");
+    let receipt = test_webhook(&client(&server)).await.expect("200 decodes");
     assert!(receipt.success);
     assert_eq!(receipt.status_code, 200);
 }
@@ -151,11 +149,9 @@ async fn subscriptions_roundtrip() {
     let subs = get_subscriptions(&c).await.expect("get ok");
     assert_eq!(subs.subscribed_event_types, vec!["task_assigned"]);
 
-    let updated = update_subscriptions(
-        &c,
-        vec!["task_assigned".into(), "payment_disbursed".into()],
-    )
-    .await
-    .expect("put ok");
+    let updated =
+        update_subscriptions(&c, vec!["task_assigned".into(), "payment_disbursed".into()])
+            .await
+            .expect("put ok");
     assert_eq!(updated.subscribed_event_types.len(), 2);
 }

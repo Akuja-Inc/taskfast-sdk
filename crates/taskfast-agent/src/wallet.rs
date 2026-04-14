@@ -23,8 +23,8 @@ use alloy_signer_local::PrivateKeySigner;
 use taskfast_client::api::types::{
     WalletBalance, WalletSetupRequest, WalletSetupRequestTempoWalletAddress, WalletSetupResponse,
 };
-use taskfast_client::{Error, Result, TaskFastClient, map_api_error};
-use tokio::time::{Instant, sleep};
+use taskfast_client::{map_api_error, Error, Result, TaskFastClient};
+use tokio::time::{sleep, Instant};
 
 /// Generate a fresh secp256k1 signer via `alloy_signer_local`.
 ///

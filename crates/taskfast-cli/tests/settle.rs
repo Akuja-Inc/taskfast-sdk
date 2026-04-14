@@ -12,18 +12,17 @@ use std::str::FromStr;
 
 use alloy_primitives::{Address, B256, U256};
 use alloy_signer_local::PrivateKeySigner;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_agent::signing::{DistributionDomain, verify_distribution};
-use taskfast_cli::cmd::settle::{Args, run};
+use taskfast_agent::signing::{verify_distribution, DistributionDomain};
+use taskfast_cli::cmd::settle::{run, Args};
 use taskfast_cli::cmd::{CmdError, Ctx};
-use taskfast_cli::{Environment, Envelope};
+use taskfast_cli::{Envelope, Environment};
 
 const TASK_ID: &str = "00000000-0000-0000-0000-0000000000aa";
-const ESCROW_ID: &str =
-    "0xabababababababababababababababababababababababababababababababab";
+const ESCROW_ID: &str = "0xabababababababababababababababababababababababababababababababab";
 const VERIFYING_CONTRACT: &str = "0x0000000000000000000000000000000000000001";
 const CHAIN_ID: u64 = 42_431;
 
@@ -283,7 +282,10 @@ async fn settle_dry_run_skips_post_but_still_signs() {
     assert_eq!(v["data"]["task_id"], TASK_ID);
     assert_eq!(v["data"]["escrow_id"], ESCROW_ID);
     assert_eq!(v["data"]["domain"]["chain_id"], CHAIN_ID as i64);
-    assert_eq!(v["data"]["domain"]["verifying_contract"], VERIFYING_CONTRACT);
+    assert_eq!(
+        v["data"]["domain"]["verifying_contract"],
+        VERIFYING_CONTRACT
+    );
 
     let sig = v["data"]["signature"].as_str().expect("signature string");
     assert_eq!(sig.len(), 132, "r||s||v hex is 0x + 65 bytes");
@@ -294,10 +296,7 @@ async fn settle_dry_run_skips_post_but_still_signs() {
     // dry-run assertion: if the CLI signed something other than what it
     // claimed, verification would fail.
     let deadline_signed = v["data"]["deadline"].as_u64().expect("deadline u64");
-    let domain = DistributionDomain::new(
-        CHAIN_ID,
-        Address::from_str(VERIFYING_CONTRACT).unwrap(),
-    );
+    let domain = DistributionDomain::new(CHAIN_ID, Address::from_str(VERIFYING_CONTRACT).unwrap());
     let escrow_id = B256::from_str(ESCROW_ID).unwrap();
     let ok = verify_distribution(
         sig,
@@ -311,6 +310,10 @@ async fn settle_dry_run_skips_post_but_still_signs() {
 }
 
 #[tokio::test]
+#[allow(
+    unsafe_code,
+    reason = "test mutates env vars; std::env::set_var/remove_var require unsafe in 2024+"
+)]
 async fn settle_missing_keystore_is_usage_error() {
     let server = MockServer::start().await;
     let keys = fresh_keys();
@@ -328,16 +331,20 @@ async fn settle_missing_keystore_is_usage_error() {
     let prev = std::env::var_os("TEMPO_KEY_SOURCE");
     // SAFETY: single-threaded within this test; env mutation is local.
     // Wiremock server lives on its own task but doesn't read this var.
-    unsafe { std::env::remove_var("TEMPO_KEY_SOURCE"); }
+    unsafe {
+        std::env::remove_var("TEMPO_KEY_SOURCE");
+    }
 
-    let err = run(&ctx_for(&server, Some("test-key")), args).await.expect_err(
-        "settle without keystore must fail",
-    );
+    let err = run(&ctx_for(&server, Some("test-key")), args)
+        .await
+        .expect_err("settle without keystore must fail");
 
     // Restore whatever the outer environment had.
     if let Some(v) = prev {
         // SAFETY: see above.
-        unsafe { std::env::set_var("TEMPO_KEY_SOURCE", v); }
+        unsafe {
+            std::env::set_var("TEMPO_KEY_SOURCE", v);
+        }
     }
 
     match err {
@@ -371,10 +378,7 @@ async fn settle_deadline_override_binds_into_signature() {
     assert_eq!(v["data"]["deadline"].as_u64(), Some(override_deadline));
 
     let sig = v["data"]["signature"].as_str().unwrap();
-    let domain = DistributionDomain::new(
-        CHAIN_ID,
-        Address::from_str(VERIFYING_CONTRACT).unwrap(),
-    );
+    let domain = DistributionDomain::new(CHAIN_ID, Address::from_str(VERIFYING_CONTRACT).unwrap());
     let escrow_id = B256::from_str(ESCROW_ID).unwrap();
 
     // Verification with the override deadline succeeds...

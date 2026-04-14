@@ -6,6 +6,9 @@ license.workspace = true
 publish = false
 description = "Repo automation + shared spec tooling. Binary: `cargo xtask <cmd>`. Library: spec normalizer consumed by taskfast-client/build.rs."
 
+[lints]
+workspace = true
+
 [lib]
 path = "src/lib.rs"
 

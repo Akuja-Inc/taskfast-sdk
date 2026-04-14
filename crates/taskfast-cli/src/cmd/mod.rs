@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use thiserror::Error;
 
-use crate::Environment;
 use crate::envelope::Envelope;
 use crate::exit::ExitCode;
+use crate::Environment;
 
 use taskfast_agent::keystore::KeystoreError;
 use taskfast_agent::signing::SigningError;

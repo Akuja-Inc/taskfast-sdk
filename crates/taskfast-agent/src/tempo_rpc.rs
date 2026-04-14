@@ -25,7 +25,7 @@ use alloy_primitives::{Address, Bytes, TxHash, TxKind, U256};
 use alloy_signer::SignerSync;
 use alloy_signer_local::PrivateKeySigner;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use thiserror::Error as ThisError;
 
 /// Buffer applied to `eth_estimateGas` output, as numerator/denominator.
@@ -86,7 +86,10 @@ impl TempoRpcClient {
     /// Build from an existing reqwest client (share connection pool with the
     /// TaskFast API client) plus the Tempo RPC URL.
     pub fn new(http: reqwest::Client, url: impl Into<String>) -> Self {
-        Self { http, url: url.into() }
+        Self {
+            http,
+            url: url.into(),
+        }
     }
 
     /// Convenience: build with a fresh reqwest client. Tests use this.
@@ -226,9 +229,7 @@ pub async fn sign_erc20_transfer(
     let estimate = rpc
         .estimate_gas(signer.address(), token_address, &calldata)
         .await?;
-    let gas_limit = estimate
-        .saturating_mul(GAS_ESTIMATE_BUFFER_NUM)
-        / GAS_ESTIMATE_BUFFER_DEN;
+    let gas_limit = estimate.saturating_mul(GAS_ESTIMATE_BUFFER_NUM) / GAS_ESTIMATE_BUFFER_DEN;
 
     let tx = TxLegacy {
         chain_id: Some(chain_id),
@@ -250,14 +251,12 @@ pub async fn sign_erc20_transfer(
 
 fn parse_hex_u64(s: &str) -> Result<u64, RpcError> {
     let stripped = s.strip_prefix("0x").unwrap_or(s);
-    u64::from_str_radix(stripped, 16)
-        .map_err(|e| RpcError::Hex(format!("u64 from {s}: {e}")))
+    u64::from_str_radix(stripped, 16).map_err(|e| RpcError::Hex(format!("u64 from {s}: {e}")))
 }
 
 fn parse_hex_u128(s: &str) -> Result<u128, RpcError> {
     let stripped = s.strip_prefix("0x").unwrap_or(s);
-    u128::from_str_radix(stripped, 16)
-        .map_err(|e| RpcError::Hex(format!("u128 from {s}: {e}")))
+    u128::from_str_radix(stripped, 16).map_err(|e| RpcError::Hex(format!("u128 from {s}: {e}")))
 }
 
 fn decode_0x(s: &str) -> Result<Vec<u8>, RpcError> {
@@ -305,7 +304,9 @@ mod tests {
             .mount(&server)
             .await;
         let rpc = TempoRpcClient::with_default_client(server.uri());
-        let addr: Address = "0x0000000000000000000000000000000000000001".parse().unwrap();
+        let addr: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
         assert_eq!(rpc.pending_nonce(addr).await.unwrap(), 7);
     }
 
@@ -328,7 +329,9 @@ mod tests {
         let hash_hex = format!("0x{}", "aa".repeat(32));
         Mock::given(method("POST"))
             .and(path("/"))
-            .and(body_partial_json(json!({"method": "eth_sendRawTransaction"})))
+            .and(body_partial_json(
+                json!({"method": "eth_sendRawTransaction"}),
+            ))
             .respond_with(rpc_ok(json!(hash_hex.clone())))
             .mount(&server)
             .await;
@@ -370,7 +373,10 @@ mod tests {
             .await;
         let rpc = TempoRpcClient::with_default_client(server.uri());
         let err = rpc.chain_id().await.expect_err("must fail");
-        assert!(matches!(err, RpcError::Http { status: 502, .. }), "got {err:?}");
+        assert!(
+            matches!(err, RpcError::Http { status: 502, .. }),
+            "got {err:?}"
+        );
     }
 
     #[tokio::test]
@@ -383,8 +389,12 @@ mod tests {
             .mount(&server)
             .await;
         let rpc = TempoRpcClient::with_default_client(server.uri());
-        let from: Address = "0x0000000000000000000000000000000000000001".parse().unwrap();
-        let to: Address = "0x0000000000000000000000000000000000000002".parse().unwrap();
+        let from: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
+        let to: Address = "0x0000000000000000000000000000000000000002"
+            .parse()
+            .unwrap();
         let gas = rpc
             .estimate_gas(from, to, &Bytes::from_static(&[0xa9u8, 0x05, 0x9c, 0xbb]))
             .await
@@ -406,8 +416,12 @@ mod tests {
             .mount(&server)
             .await;
         let rpc = TempoRpcClient::with_default_client(server.uri());
-        let from: Address = "0x0000000000000000000000000000000000000001".parse().unwrap();
-        let to: Address = "0x0000000000000000000000000000000000000002".parse().unwrap();
+        let from: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
+        let to: Address = "0x0000000000000000000000000000000000000002"
+            .parse()
+            .unwrap();
         let err = rpc
             .estimate_gas(from, to, &Bytes::new())
             .await
@@ -429,7 +443,9 @@ mod tests {
             .mount(&server)
             .await;
         Mock::given(method("POST"))
-            .and(body_partial_json(json!({"method": "eth_getTransactionCount"})))
+            .and(body_partial_json(
+                json!({"method": "eth_getTransactionCount"}),
+            ))
             .respond_with(rpc_ok(json!("0x0")))
             .mount(&server)
             .await;
@@ -445,17 +461,25 @@ mod tests {
             .await;
         let signer = PrivateKeySigner::random();
         let rpc = TempoRpcClient::with_default_client(server.uri());
-        let token: Address = "0x00000000000000000000000000000000000000aa".parse().unwrap();
+        let token: Address = "0x00000000000000000000000000000000000000aa"
+            .parse()
+            .unwrap();
         // Real-looking ERC-20 transfer calldata: selector 0xa9059cbb + 32b addr + 32b amount.
-        let calldata = Bytes::from_iter([
-            0xa9u8, 0x05, 0x9c, 0xbb,
-        ].into_iter().chain(vec![0u8; 32 + 32]));
+        let calldata = Bytes::from_iter(
+            [0xa9u8, 0x05, 0x9c, 0xbb]
+                .into_iter()
+                .chain(vec![0u8; 32 + 32]),
+        );
         let raw = sign_erc20_transfer(&rpc, &signer, token, calldata)
             .await
             .expect("sign");
         assert!(!raw.is_empty(), "raw tx must encode to non-empty bytes");
         // Legacy tx RLP starts with list prefix 0xc0..0xf7 or 0xf8..0xff.
-        assert!(raw[0] >= 0xc0, "legacy tx must be an RLP list, got first byte {:#x}", raw[0]);
+        assert!(
+            raw[0] >= 0xc0,
+            "legacy tx must be an RLP list, got first byte {:#x}",
+            raw[0]
+        );
 
         // Decode the signed envelope and assert the buffered gas limit:
         // floor(307_348 * 13 / 10) = 399_552.

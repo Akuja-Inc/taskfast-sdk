@@ -10,11 +10,11 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use taskfast_cli::cmd::task::{
-    ApproveArgs, CancelArgs, Command, DisputeArgs, GetArgs, ListArgs, ListKind, SubmitArgs,
-    TaskStatus, run,
+    run, ApproveArgs, CancelArgs, Command, DisputeArgs, GetArgs, ListArgs, ListKind, SubmitArgs,
+    TaskStatus,
 };
 use taskfast_cli::cmd::{CmdError, Ctx};
-use taskfast_cli::{Environment, Envelope};
+use taskfast_cli::{Envelope, Environment};
 
 const TASK_ID: &str = "00000000-0000-0000-0000-0000000000aa";
 
@@ -158,9 +158,7 @@ async fn get_returns_task_detail() {
 
     let envelope = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Get(GetArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Get(GetArgs { id: TASK_ID.into() }),
     )
     .await
     .expect("get should succeed");
@@ -203,9 +201,7 @@ async fn get_404_surfaces_as_validation_error() {
 
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Get(GetArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Get(GetArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("404 must surface as Validation per client mapping");
@@ -483,9 +479,7 @@ async fn approve_happy_path_returns_task_id_and_status() {
         .await;
     let envelope = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Approve(ApproveArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Approve(ApproveArgs { id: TASK_ID.into() }),
     )
     .await
     .expect("approve ok");
@@ -500,14 +494,9 @@ async fn approve_dry_run_skips_http() {
     let server = MockServer::start().await; // no mocks
     let mut ctx = ctx_for(&server, Some("test-key"));
     ctx.dry_run = true;
-    let envelope = run(
-        &ctx,
-        Command::Approve(ApproveArgs {
-            id: TASK_ID.into(),
-        }),
-    )
-    .await
-    .expect("dry-run ok");
+    let envelope = run(&ctx, Command::Approve(ApproveArgs { id: TASK_ID.into() }))
+        .await
+        .expect("dry-run ok");
     let v = envelope_value(&envelope);
     assert_eq!(v["dry_run"], true);
     assert_eq!(v["data"]["action"], "would_approve");
@@ -545,9 +534,7 @@ async fn approve_403_surfaces_as_auth() {
         .await;
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Approve(ApproveArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Approve(ApproveArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("403 must surface");
@@ -567,9 +554,7 @@ async fn approve_409_surfaces() {
         .await;
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Approve(ApproveArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Approve(ApproveArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("409 must surface");
@@ -592,9 +577,7 @@ async fn approve_401_surfaces_as_auth() {
         .await;
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Approve(ApproveArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Approve(ApproveArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("401 must surface");
@@ -606,9 +589,7 @@ async fn approve_missing_api_key_errors_before_any_http() {
     let server = MockServer::start().await;
     let err = run(
         &ctx_for(&server, None),
-        Command::Approve(ApproveArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Approve(ApproveArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("no key");
@@ -772,9 +753,7 @@ async fn cancel_happy_path_returns_id_and_status() {
         .await;
     let envelope = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Cancel(CancelArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Cancel(CancelArgs { id: TASK_ID.into() }),
     )
     .await
     .expect("cancel ok");
@@ -789,14 +768,9 @@ async fn cancel_dry_run_skips_http() {
     let server = MockServer::start().await;
     let mut ctx = ctx_for(&server, Some("test-key"));
     ctx.dry_run = true;
-    let envelope = run(
-        &ctx,
-        Command::Cancel(CancelArgs {
-            id: TASK_ID.into(),
-        }),
-    )
-    .await
-    .expect("dry-run ok");
+    let envelope = run(&ctx, Command::Cancel(CancelArgs { id: TASK_ID.into() }))
+        .await
+        .expect("dry-run ok");
     let v = envelope_value(&envelope);
     assert_eq!(v["dry_run"], true);
     assert_eq!(v["data"]["action"], "would_cancel");
@@ -808,9 +782,7 @@ async fn cancel_bad_uuid_is_usage_error_without_any_http() {
     let server = MockServer::start().await;
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Cancel(CancelArgs {
-            id: "bad".into(),
-        }),
+        Command::Cancel(CancelArgs { id: "bad".into() }),
     )
     .await
     .expect_err("bad UUID");
@@ -830,9 +802,7 @@ async fn cancel_409_surfaces_non_cancellable_state() {
         .await;
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Cancel(CancelArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Cancel(CancelArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("409 must surface");
@@ -855,9 +825,7 @@ async fn cancel_401_surfaces_as_auth() {
         .await;
     let err = run(
         &ctx_for(&server, Some("test-key")),
-        Command::Cancel(CancelArgs {
-            id: TASK_ID.into(),
-        }),
+        Command::Cancel(CancelArgs { id: TASK_ID.into() }),
     )
     .await
     .expect_err("401");

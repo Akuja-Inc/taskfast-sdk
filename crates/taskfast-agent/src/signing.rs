@@ -24,10 +24,10 @@
 
 use std::borrow::Cow;
 
-use alloy_primitives::{Address, B256, Signature, U256};
+use alloy_primitives::{Address, Signature, B256, U256};
 use alloy_signer::SignerSync;
 use alloy_signer_local::PrivateKeySigner;
-use alloy_sol_types::{Eip712Domain, SolStruct, sol};
+use alloy_sol_types::{sol, Eip712Domain, SolStruct};
 use thiserror::Error as ThisError;
 
 /// Tempo chain IDs, mirrored from `TempoConstants` on the platform. Keeping
@@ -65,7 +65,10 @@ pub struct DistributionDomain {
 
 impl DistributionDomain {
     pub fn new(chain_id: u64, verifying_contract: Address) -> Self {
-        Self { chain_id, verifying_contract }
+        Self {
+            chain_id,
+            verifying_contract,
+        }
     }
 
     pub fn testnet(verifying_contract: Address) -> Self {
@@ -105,11 +108,7 @@ pub enum SigningError {
 /// Compute the 32-byte EIP-712 digest for a [`DistributionApproval`] against
 /// the given domain. Exposed so callers (and tests) can inspect or
 /// cross-check the hash the contract will recover against.
-pub fn distribution_digest(
-    domain: &DistributionDomain,
-    escrow_id: B256,
-    deadline: U256,
-) -> B256 {
+pub fn distribution_digest(domain: &DistributionDomain, escrow_id: B256, deadline: U256) -> B256 {
     let approval = DistributionApproval {
         escrowId: escrow_id,
         deadline,
@@ -170,8 +169,8 @@ fn encode_signature(sig: &Signature) -> String {
 
 fn parse_signature(hex_str: &str) -> Result<Signature, SigningError> {
     let stripped = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes = hex::decode(stripped)
-        .map_err(|e| SigningError::InvalidSignatureHex(e.to_string()))?;
+    let bytes =
+        hex::decode(stripped).map_err(|e| SigningError::InvalidSignatureHex(e.to_string()))?;
     Signature::try_from(bytes.as_slice())
         .map_err(|e| SigningError::InvalidSignatureHex(e.to_string()))
 }
@@ -357,9 +356,7 @@ mod tests {
 
         let sig_hex = sign_hash_raw(&signer, digest).expect("sign");
         let sig = parse_signature(&sig_hex).expect("parse");
-        let recovered = sig
-            .recover_address_from_prehash(&digest)
-            .expect("recover");
+        let recovered = sig.recover_address_from_prehash(&digest).expect("recover");
         assert_eq!(recovered, expected);
     }
 
@@ -401,7 +398,9 @@ mod tests {
     fn cross_check_digest_matches_elixir_fixture() {
         // escrow_id = repeat 0xab..0xab (32 bytes), deadline = 1_800_000_000,
         // verifying_contract = 0x00..01. Chain id is pinned testnet.
-        let vc: Address = "0x0000000000000000000000000000000000000001".parse().unwrap();
+        let vc: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
         let domain = DistributionDomain::testnet(vc);
         let mut escrow_bytes = [0u8; 32];
         escrow_bytes.iter_mut().for_each(|b| *b = 0xab);

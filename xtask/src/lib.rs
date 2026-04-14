@@ -1,3 +1,6 @@
+// TODO: doc the public surface; xtask is internal so keep this deferred.
+#![allow(missing_docs, clippy::doc_markdown)]
+
 //! TaskFast OpenAPI spec tooling.
 //!
 //! The authoritative spec lives at `spec/openapi.yaml`. The platform team
@@ -54,7 +57,7 @@
 //! `progenitor_client::Error::UnexpectedResponse(reqwest::Response)` — we
 //! re-classify into our typed [`errors::Error`] in the calling layer.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use serde_yaml::{Mapping, Value};
 
 /// Schemas known to be structural clones of `#/components/schemas/Error`.
@@ -177,7 +180,9 @@ fn strip_multipart_only_operations(doc: &mut Value) -> Vec<String> {
 
     const HTTP_VERBS: &[&str] = &["get", "put", "post", "delete", "patch", "options", "head"];
     for (_path_key, path_item) in paths.iter_mut() {
-        let Some(ops) = path_item.as_mapping_mut() else { continue };
+        let Some(ops) = path_item.as_mapping_mut() else {
+            continue;
+        };
         let mut to_remove = Vec::new();
         for verb in HTTP_VERBS {
             if let Some(op) = ops.get(Value::from(*verb)) {
@@ -223,9 +228,13 @@ fn strip_non_success_responses(doc: &mut Value) -> usize {
 
     const HTTP_VERBS: &[&str] = &["get", "put", "post", "delete", "patch", "options", "head"];
     for (_path_key, path_item) in paths.iter_mut() {
-        let Some(ops) = path_item.as_mapping_mut() else { continue };
+        let Some(ops) = path_item.as_mapping_mut() else {
+            continue;
+        };
         for verb in HTTP_VERBS {
-            let Some(op) = ops.get_mut(Value::from(*verb)) else { continue };
+            let Some(op) = ops.get_mut(Value::from(*verb)) else {
+                continue;
+            };
             let Some(responses) = op
                 .as_mapping_mut()
                 .and_then(|m| m.get_mut(Value::from("responses")))
@@ -238,7 +247,11 @@ fn strip_non_success_responses(doc: &mut Value) -> usize {
                 .iter()
                 .filter_map(|(k, _)| {
                     let key = k.as_str()?;
-                    if is_success_or_default(key) { None } else { Some(k.clone()) }
+                    if is_success_or_default(key) {
+                        None
+                    } else {
+                        Some(k.clone())
+                    }
                 })
                 .collect();
             for k in to_remove {
@@ -415,7 +428,10 @@ components:
     #[test]
     fn normalize_folds_alias_refs_and_drops_schema() {
         let (out, report) = normalize_spec_with_report(BASE_SPEC).unwrap();
-        assert_eq!(report.folded_aliases, vec!["WalletBalanceNotFoundError".to_string()]);
+        assert_eq!(
+            report.folded_aliases,
+            vec!["WalletBalanceNotFoundError".to_string()]
+        );
         assert_eq!(report.refs_rewritten, 1);
 
         // The canonical Error schema definition still lives in components
@@ -522,7 +538,10 @@ components:
         assert!(!out.contains("uploadThing"), "uploadThing not stripped");
         // Siblings untouched.
         assert!(out.contains("listThings"), "sibling GET removed by mistake");
-        assert!(out.contains("postJsonThing"), "JSON-only POST removed by mistake");
+        assert!(
+            out.contains("postJsonThing"),
+            "JSON-only POST removed by mistake"
+        );
         // The path entry itself survives because listThings still lives there.
         assert!(out.contains("/upload:"));
     }

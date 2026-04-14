@@ -14,7 +14,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use taskfast_cli::cmd::webhook::{self, Command, RegisterArgs, SubscribeArgs};
 use taskfast_cli::cmd::Ctx;
-use taskfast_cli::{Environment, Envelope};
+use taskfast_cli::{Envelope, Environment};
 
 fn ctx_for(server: &MockServer, dry_run: bool) -> Ctx {
     Ctx {

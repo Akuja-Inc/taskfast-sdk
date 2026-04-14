@@ -18,10 +18,10 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use futures::Stream;
 use futures::stream::unfold;
+use futures::Stream;
 use taskfast_client::api::types::{AgentEvent, AgentEventListResponse};
-use taskfast_client::{Result, TaskFastClient, map_api_error};
+use taskfast_client::{map_api_error, Result, TaskFastClient};
 use tokio::time::sleep;
 
 /// Default knobs. Page size of 100 matches the server's ceiling for this

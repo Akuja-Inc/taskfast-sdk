@@ -220,7 +220,10 @@ async fn subscribe(ctx: &Ctx, args: SubscribeArgs) -> CmdResult {
     }
 
     let events: Vec<String> = if args.default_events {
-        DEFAULT_WORKER_EVENTS.iter().map(|e| (*e).to_string()).collect()
+        DEFAULT_WORKER_EVENTS
+            .iter()
+            .map(|e| (*e).to_string())
+            .collect()
     } else if !args.events.is_empty() {
         args.events.clone()
     } else {

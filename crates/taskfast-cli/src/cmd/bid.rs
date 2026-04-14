@@ -15,9 +15,9 @@ use uuid::Uuid;
 use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
-use taskfast_client::TaskFastClient;
 use taskfast_client::api::types::{BidRejectRequest, BidRejectRequestReason, BidRequest};
 use taskfast_client::map_api_error;
+use taskfast_client::TaskFastClient;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {

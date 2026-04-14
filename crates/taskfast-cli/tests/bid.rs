@@ -7,7 +7,9 @@ use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::bid::{AcceptArgs, CancelArgs, Command, CreateArgs, ListArgs, RejectArgs, run};
+use taskfast_cli::cmd::bid::{
+    run, AcceptArgs, CancelArgs, Command, CreateArgs, ListArgs, RejectArgs,
+};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::{Envelope, Environment};
 
@@ -156,7 +158,9 @@ async fn create_happy_path_posts_price_and_pitch() {
     // a regression that dropped `pitch` would pass a status-code-only assertion.
     Mock::given(method("POST"))
         .and(path(format!("/api/tasks/{TASK_ID}/bids")))
-        .and(body_partial_json(json!({ "price": "75.00", "pitch": "why me" })))
+        .and(body_partial_json(
+            json!({ "price": "75.00", "pitch": "why me" }),
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(bid_body("pending")))
         .mount(&server)
         .await;

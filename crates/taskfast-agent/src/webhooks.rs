@@ -30,7 +30,7 @@ use taskfast_client::api::types::{
     WebhookConfig, WebhookConfigRequest, WebhookSubscriptions, WebhookSubscriptionsUpdate,
     WebhookTestSuccess,
 };
-use taskfast_client::{Result, TaskFastClient, map_api_error};
+use taskfast_client::{map_api_error, Result, TaskFastClient};
 use thiserror::Error as ThisError;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -170,8 +170,8 @@ pub fn verify_signature(
 
     // Mac::new_from_slice accepts any key length for HMAC; only length-0
     // secrets are a protocol violation and we've already rejected those.
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts keys of any length");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any length");
     mac.update(timestamp.as_bytes());
     mac.update(b".");
     mac.update(body.as_bytes());
@@ -183,8 +183,8 @@ pub fn verify_signature(
 /// callers can produce matching signatures in their own tests without
 /// reimplementing the canonical-string rules.
 pub fn sign_payload(secret: &str, timestamp: &str, body: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts keys of any length");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any length");
     mac.update(timestamp.as_bytes());
     mac.update(b".");
     mac.update(body.as_bytes());
@@ -197,7 +197,8 @@ mod tests {
 
     const SECRET: &str = "whsec_test_1234567890";
     const TS: &str = "2026-03-23T12:00:00Z";
-    const BODY: &str = r#"{"event":"test","timestamp":"2026-03-23T12:00:00Z","data":{"message":"ok"}}"#;
+    const BODY: &str =
+        r#"{"event":"test","timestamp":"2026-03-23T12:00:00Z","data":{"message":"ok"}}"#;
 
     fn fixed_now() -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-03-23T12:01:00Z")
@@ -226,7 +227,9 @@ mod tests {
         let sig = sign_payload(SECRET, TS, BODY);
         // 64 lowercase hex chars
         assert_eq!(sig.len(), 64);
-        assert!(sig.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(sig
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 
     #[test]
@@ -242,16 +245,21 @@ mod tests {
         // Different (but still-fresh) timestamp → hash mismatch, not skew.
         let sig = sign_payload(SECRET, TS, BODY);
         let other_ts = "2026-03-23T12:00:30Z";
-        let err = verify_signature(SECRET, other_ts, BODY, &sig, opts_at(fixed_now()))
-            .unwrap_err();
+        let err = verify_signature(SECRET, other_ts, BODY, &sig, opts_at(fixed_now())).unwrap_err();
         assert!(matches!(err, SignatureError::Mismatch));
     }
 
     #[test]
     fn wrong_secret_is_rejected() {
         let sig = sign_payload(SECRET, TS, BODY);
-        let err = verify_signature("whsec_wrong_0000000000", TS, BODY, &sig, opts_at(fixed_now()))
-            .unwrap_err();
+        let err = verify_signature(
+            "whsec_wrong_0000000000",
+            TS,
+            BODY,
+            &sig,
+            opts_at(fixed_now()),
+        )
+        .unwrap_err();
         assert!(matches!(err, SignatureError::Mismatch));
     }
 
@@ -269,15 +277,15 @@ mod tests {
     #[test]
     fn malformed_timestamp_fails_before_hmac() {
         let sig = sign_payload(SECRET, TS, BODY);
-        let err = verify_signature(SECRET, "not-a-date", BODY, &sig, opts_at(fixed_now()))
-            .unwrap_err();
+        let err =
+            verify_signature(SECRET, "not-a-date", BODY, &sig, opts_at(fixed_now())).unwrap_err();
         assert!(matches!(err, SignatureError::InvalidTimestamp(_)));
     }
 
     #[test]
     fn non_hex_signature_is_rejected() {
-        let err = verify_signature(SECRET, TS, BODY, "not-hex-!!", opts_at(fixed_now()))
-            .unwrap_err();
+        let err =
+            verify_signature(SECRET, TS, BODY, "not-hex-!!", opts_at(fixed_now())).unwrap_err();
         assert!(matches!(err, SignatureError::InvalidSignatureHex));
     }
 
@@ -292,8 +300,7 @@ mod tests {
     fn constant_time_compare_rejects_truncated_signature() {
         let sig = sign_payload(SECRET, TS, BODY);
         let truncated = &sig[..sig.len() - 2];
-        let err = verify_signature(SECRET, TS, BODY, truncated, opts_at(fixed_now()))
-            .unwrap_err();
+        let err = verify_signature(SECRET, TS, BODY, truncated, opts_at(fixed_now())).unwrap_err();
         // Length mismatch surfaces as Mismatch (verify_slice rejects
         // wrong-length tags even before constant-time compare).
         assert!(matches!(err, SignatureError::Mismatch));

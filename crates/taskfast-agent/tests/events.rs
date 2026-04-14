@@ -5,12 +5,12 @@
 //! `has_more=true`), and error-resumability (the stream surfaces errors
 //! but stays alive for the next `.next()`).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use taskfast_agent::events::{PollOptions, list_events_page, stream_events};
+use taskfast_agent::events::{list_events_page, stream_events, PollOptions};
 use taskfast_client::TaskFastClient;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -28,7 +28,11 @@ fn event(id: &str, name: &str) -> serde_json::Value {
     })
 }
 
-fn page(events: Vec<serde_json::Value>, next_cursor: Option<&str>, has_more: bool) -> serde_json::Value {
+fn page(
+    events: Vec<serde_json::Value>,
+    next_cursor: Option<&str>,
+    has_more: bool,
+) -> serde_json::Value {
     serde_json::json!({
         "data": events,
         "meta": {

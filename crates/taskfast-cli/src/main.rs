@@ -4,9 +4,12 @@
 //! returns `Result<Envelope, CmdError>`; we print the envelope (unless
 //! `--quiet`) and exit with the matching code from [`exit::ExitCode`].
 
+// TODO: tighten doc coverage on public items + remove this allow.
+#![allow(missing_docs)]
+
 use clap::{Parser, Subcommand};
 
-use taskfast_cli::{Environment, Envelope, cmd, exit};
+use taskfast_cli::{cmd, exit, Envelope, Environment};
 
 #[derive(Debug, Parser)]
 #[command(

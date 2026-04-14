@@ -1,5 +1,7 @@
 //! `cargo xtask <cmd>` — repo automation entrypoint.
 
+#![allow(missing_docs, clippy::doc_markdown)]
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -36,7 +38,11 @@ enum Cmd {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::SyncSpec { input, output, dry_run } => run_sync_spec(&input, &output, dry_run),
+        Cmd::SyncSpec {
+            input,
+            output,
+            dry_run,
+        } => run_sync_spec(&input, &output, dry_run),
     }
 }
 
@@ -44,8 +50,8 @@ fn run_sync_spec(input: &std::path::Path, output: &std::path::Path, dry_run: boo
     let src = std::fs::read_to_string(input)
         .with_context(|| format!("read spec from {}", input.display()))?;
 
-    let (normalized, report) = xtask::normalize_spec_with_report(&src)
-        .context("normalize spec in-memory")?;
+    let (normalized, report) =
+        xtask::normalize_spec_with_report(&src).context("normalize spec in-memory")?;
 
     eprintln!(
         "sync-spec: folded {} alias(es), rewrote {} $ref(s), stripped {} multipart op(s), dropped {} non-2xx response(s)",
@@ -62,11 +68,18 @@ fn run_sync_spec(input: &std::path::Path, output: &std::path::Path, dry_run: boo
     }
 
     if dry_run {
-        eprintln!("sync-spec: --dry-run, skipping write to {}", output.display());
+        eprintln!(
+            "sync-spec: --dry-run, skipping write to {}",
+            output.display()
+        );
     } else {
         std::fs::write(output, &normalized)
             .with_context(|| format!("write normalized spec to {}", output.display()))?;
-        eprintln!("sync-spec: wrote {} ({} bytes)", output.display(), normalized.len());
+        eprintln!(
+            "sync-spec: wrote {} ({} bytes)",
+            output.display(),
+            normalized.len()
+        );
     }
     Ok(())
 }

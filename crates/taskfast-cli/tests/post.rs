@@ -6,13 +6,13 @@
 //! tempo_rpc (nonce tag, RLP encoding) surfaces here too.
 
 use alloy_signer_local::PrivateKeySigner;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::post::{Args, AssignmentType, Network, run};
+use taskfast_cli::cmd::post::{run, Args, AssignmentType, Network};
 use taskfast_cli::cmd::{CmdError, Ctx};
-use taskfast_cli::{Environment, Envelope};
+use taskfast_cli::{Envelope, Environment};
 
 fn ctx_for(server: &MockServer, key: Option<&str>) -> Ctx {
     Ctx {
@@ -65,7 +65,9 @@ async fn mount_rpc_mocks(server: &MockServer, tx_hash_hex: &str) {
         .mount(server)
         .await;
     Mock::given(method("POST"))
-        .and(body_partial_json(json!({"method": "eth_getTransactionCount"})))
+        .and(body_partial_json(
+            json!({"method": "eth_getTransactionCount"}),
+        ))
         .respond_with(rpc_ok(json!("0x0")))
         .mount(server)
         .await;
@@ -80,7 +82,9 @@ async fn mount_rpc_mocks(server: &MockServer, tx_hash_hex: &str) {
         .mount(server)
         .await;
     Mock::given(method("POST"))
-        .and(body_partial_json(json!({"method": "eth_sendRawTransaction"})))
+        .and(body_partial_json(
+            json!({"method": "eth_sendRawTransaction"}),
+        ))
         .respond_with(rpc_ok(json!(tx_hash_hex)))
         .mount(server)
         .await;
@@ -124,7 +128,9 @@ async fn post_happy_path_end_to_end() {
 
     Mock::given(method("POST"))
         .and(path(format!("/api/task_drafts/{draft_id}/submit")))
-        .and(body_partial_json(json!({ "signature": tx_hash_hex.clone() })))
+        .and(body_partial_json(
+            json!({ "signature": tx_hash_hex.clone() }),
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "id": task_id,
             "status": "open",
@@ -217,10 +223,7 @@ async fn post_direct_without_agent_id_is_usage_error() {
         .await
         .expect_err("direct without id must fail");
     match err {
-        CmdError::Usage(msg) => assert!(
-            msg.contains("--direct-agent-id"),
-            "unexpected: {msg}"
-        ),
+        CmdError::Usage(msg) => assert!(msg.contains("--direct-agent-id"), "unexpected: {msg}"),
         other => panic!("expected Usage, got {other:?}"),
     }
 }
@@ -285,10 +288,9 @@ async fn post_keystore_address_mismatch_is_usage_error() {
         .await
         .expect_err("address mismatch must fail");
     match err {
-        CmdError::Usage(msg) => assert!(
-            msg.contains("does not match"),
-            "unexpected message: {msg}"
-        ),
+        CmdError::Usage(msg) => {
+            assert!(msg.contains("does not match"), "unexpected message: {msg}")
+        }
         other => panic!("expected Usage, got {other:?}"),
     }
 }
@@ -466,10 +468,7 @@ async fn post_criteria_file_merges_with_inline() {
         .await;
     mount_rpc_mocks(&rpc_server, &tx_hash_hex).await;
 
-    let mut args = base_args(
-        Some(wallet_addr),
-        Some(keystore_path.display().to_string()),
-    );
+    let mut args = base_args(Some(wallet_addr), Some(keystore_path.display().to_string()));
     args.wallet_password_file = Some(password_path);
     args.rpc_url = Some(rpc_server.uri());
     args.criteria_file = Some(criteria_path);

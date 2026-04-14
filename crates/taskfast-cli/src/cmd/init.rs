@@ -50,12 +50,12 @@ use clap::Parser;
 use serde_json::json;
 
 use super::{CmdError, CmdResult, Ctx};
-use crate::dotenv::{DEFAULT_ENV_FILENAME, EnvFile};
+use crate::dotenv::{EnvFile, DEFAULT_ENV_FILENAME};
 use crate::envelope::Envelope;
 
 use alloy_signer_local::PrivateKeySigner;
 use taskfast_agent::bootstrap::{create_agent_headless, get_readiness, validate_auth};
-use taskfast_agent::faucet::{FaucetDrop, request_testnet_funds};
+use taskfast_agent::faucet::{request_testnet_funds, FaucetDrop};
 use taskfast_agent::keystore;
 use taskfast_agent::wallet;
 use taskfast_agent::webhooks;
@@ -361,9 +361,10 @@ async fn mint_agent(ctx: &Ctx, args: &Args) -> Result<MintedAgent, CmdError> {
     let resp = create_agent_headless(&pat_client, &body)
         .await
         .map_err(CmdError::from)?;
-    let api_key = resp.api_key.clone().ok_or_else(|| {
-        CmdError::Server("POST /agents returned no api_key despite 201".into())
-    })?;
+    let api_key = resp
+        .api_key
+        .clone()
+        .ok_or_else(|| CmdError::Server("POST /agents returned no api_key despite 201".into()))?;
     Ok(MintedAgent::Live {
         api_key,
         id: resp.id.map(|u| u.to_string()),
@@ -481,8 +482,7 @@ async fn provision_wallet(
     }
     if !args.generate_wallet {
         return Err(CmdError::Usage(
-            "pass --wallet-address <0x...> or --generate-wallet (or --skip-wallet to defer)"
-                .into(),
+            "pass --wallet-address <0x...> or --generate-wallet (or --skip-wallet to defer)".into(),
         ));
     }
 
@@ -515,8 +515,7 @@ fn resolve_wallet_password(args: &Args) -> Result<String, CmdError> {
     }
     let path = args.wallet_password_file.as_deref().ok_or_else(|| {
         CmdError::Usage(
-            "--generate-wallet requires --wallet-password-file or TASKFAST_WALLET_PASSWORD"
-                .into(),
+            "--generate-wallet requires --wallet-password-file or TASKFAST_WALLET_PASSWORD".into(),
         )
     })?;
     let raw = std::fs::read_to_string(path).map_err(|e| {
@@ -557,11 +556,7 @@ enum FaucetOutcome {
     Failed { error: String },
 }
 
-async fn maybe_request_faucet(
-    args: &Args,
-    wallet: &WalletOutcome,
-    dry_run: bool,
-) -> FaucetOutcome {
+async fn maybe_request_faucet(args: &Args, wallet: &WalletOutcome, dry_run: bool) -> FaucetOutcome {
     if dry_run {
         return FaucetOutcome::Skipped { reason: "dry_run" };
     }

@@ -5,6 +5,10 @@
 //! types are re-exported here so integration tests (and, later, embedded
 //! callers) can drive the pipeline without spawning a process.
 
+// TODO: tighten doc coverage on public items + remove this allow.
+// Tracked under the rust-best-practices follow-up.
+#![allow(missing_docs)]
+
 pub mod cmd;
 pub mod dotenv;
 pub mod envelope;

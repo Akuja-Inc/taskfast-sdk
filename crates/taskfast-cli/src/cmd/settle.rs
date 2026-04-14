@@ -30,7 +30,7 @@ use crate::envelope::Envelope;
 
 use taskfast_agent::bootstrap;
 use taskfast_agent::keystore::{self, KeySource};
-use taskfast_agent::signing::{DistributionDomain, sign_distribution};
+use taskfast_agent::signing::{sign_distribution, DistributionDomain};
 use taskfast_client::api::types::{SettleTaskRequest, SettleTaskRequestSignature};
 use taskfast_client::map_api_error;
 
@@ -78,17 +78,17 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
         Err(e) => return Err(map_api_error(e).await.into()),
     };
 
-    let escrow_id_hex: String = task
-        .escrow_id
-        .as_ref()
-        .map(|e| e.to_string())
-        .ok_or_else(|| {
-            CmdError::Usage(
-                "task has no escrow_id; settle requires an initialized escrow \
+    let escrow_id_hex: String =
+        task.escrow_id
+            .as_ref()
+            .map(|e| e.to_string())
+            .ok_or_else(|| {
+                CmdError::Usage(
+                    "task has no escrow_id; settle requires an initialized escrow \
                  (task must be in :complete or :disbursement_pending)"
-                    .into(),
-            )
-        })?;
+                        .into(),
+                )
+            })?;
 
     // 3. Resolve deadline: explicit override wins; otherwise require the
     //    server-stored value. Either can be absent but not both.
@@ -209,9 +209,9 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
     // 10. Live POST. Parse into the regex-validated newtype — a failure here
     //     would mean our local signer produced a malformed signature, which
     //     is a crypto-layer bug, not a network/server issue.
-    let signature: SettleTaskRequestSignature = signature_hex.parse().map_err(|e| {
-        CmdError::Signing(format!("signer produced malformed signature hex: {e}"))
-    })?;
+    let signature: SettleTaskRequestSignature = signature_hex
+        .parse()
+        .map_err(|e| CmdError::Signing(format!("signer produced malformed signature hex: {e}")))?;
     let body = SettleTaskRequest { signature };
     let resp = match client.inner().settle_task(&task_id, &body).await {
         Ok(v) => v.into_inner(),
@@ -236,8 +236,7 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
 fn load_signer_from_args(args: &Args) -> Result<PrivateKeySigner, CmdError> {
     let raw = args.keystore.as_deref().ok_or_else(|| {
         CmdError::Usage(
-            "--keystore (or TEMPO_KEY_SOURCE) is required to sign the settlement approval"
-                .into(),
+            "--keystore (or TEMPO_KEY_SOURCE) is required to sign the settlement approval".into(),
         )
     })?;
     let path_str = raw.strip_prefix("file:").unwrap_or(raw);
@@ -254,8 +253,7 @@ fn resolve_password(args: &Args) -> Result<String, CmdError> {
     }
     let path = args.wallet_password_file.as_deref().ok_or_else(|| {
         CmdError::Usage(
-            "TASKFAST_WALLET_PASSWORD or --wallet-password-file required to unlock keystore"
-                .into(),
+            "TASKFAST_WALLET_PASSWORD or --wallet-password-file required to unlock keystore".into(),
         )
     })?;
     let raw = std::fs::read_to_string(path).map_err(|e| {
@@ -270,4 +268,3 @@ fn resolve_password(args: &Args) -> Result<String, CmdError> {
     }
     Ok(trimmed.to_string())
 }
-

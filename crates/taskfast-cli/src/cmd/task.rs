@@ -31,9 +31,9 @@ use uuid::Uuid;
 use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
-use taskfast_client::TaskFastClient;
 use taskfast_client::api::types::{CompletionSubmission, DisputeRequest, ListMyTasksStatus};
 use taskfast_client::map_api_error;
+use taskfast_client::TaskFastClient;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -294,9 +294,8 @@ async fn submit(ctx: &Ctx, args: SubmitArgs) -> CmdResult {
     let mut artifact_ids: Vec<uuid::Uuid> = Vec::with_capacity(resolved.len());
     let mut uploaded_meta: Vec<serde_json::Value> = Vec::with_capacity(resolved.len());
     for r in resolved {
-        let bytes = std::fs::read(&r.path).map_err(|e| {
-            CmdError::Usage(format!("read {}: {e}", r.path.display()))
-        })?;
+        let bytes = std::fs::read(&r.path)
+            .map_err(|e| CmdError::Usage(format!("read {}: {e}", r.path.display())))?;
         let artifact = client
             .upload_artifact(&task_id, r.filename.clone(), r.content_type.clone(), bytes)
             .await
@@ -350,7 +349,9 @@ impl ResolvedArtifact {
         let filename = p
             .file_name()
             .and_then(|s| s.to_str())
-            .ok_or_else(|| CmdError::Usage(format!("artifact path has no filename: {}", p.display())))?
+            .ok_or_else(|| {
+                CmdError::Usage(format!("artifact path has no filename: {}", p.display()))
+            })?
             .to_string();
         let ext = p
             .extension()
@@ -412,7 +413,10 @@ async fn list(ctx: &Ctx, args: ListArgs) -> CmdResult {
     Ok(Envelope::success(ctx.environment, ctx.dry_run, data))
 }
 
-async fn list_mine(client: &TaskFastClient, args: &ListArgs) -> Result<serde_json::Value, CmdError> {
+async fn list_mine(
+    client: &TaskFastClient,
+    args: &ListArgs,
+) -> Result<serde_json::Value, CmdError> {
     let status = args.status.map(ListMyTasksStatus::from);
     let resp = match client
         .inner()

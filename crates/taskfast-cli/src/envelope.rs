@@ -19,8 +19,8 @@
 
 use serde::Serialize;
 
-use crate::Environment;
 use crate::cmd::CmdError;
+use crate::Environment;
 
 #[derive(Debug, Serialize)]
 pub struct Envelope {

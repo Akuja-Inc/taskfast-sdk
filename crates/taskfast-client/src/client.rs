@@ -28,7 +28,7 @@ use serde::Deserialize;
 
 use crate::api;
 use crate::errors::{Error, Result};
-use crate::retry::{RetryPolicy, with_backoff};
+use crate::retry::{with_backoff, RetryPolicy};
 
 /// Default connect timeout for the underlying reqwest::Client.
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -139,13 +139,7 @@ impl TaskFastClient {
             .mime_str(&content_type)
             .map_err(|e| Error::Server(format!("invalid content-type: {e}")))?;
         let form = reqwest::multipart::Form::new().part("file", part);
-        let resp = self
-            .inner
-            .client()
-            .post(url)
-            .multipart(form)
-            .send()
-            .await?;
+        let resp = self.inner.client().post(url).multipart(form).send().await?;
         if resp.status().is_success() {
             Ok(resp.json::<api::types::Artifact>().await?)
         } else {
@@ -170,7 +164,10 @@ pub async fn map_api_error(err: api::Error<()>) -> Error {
         AE::ErrorResponse(_) => {
             // Unreachable with stripped-non-2xx normalization (E = ()), but we
             // refuse to panic — produce a descriptive Server error instead.
-            Error::Server("progenitor emitted typed ErrorResponse for E=() — spec normalization regression".into())
+            Error::Server(
+                "progenitor emitted typed ErrorResponse for E=() — spec normalization regression"
+                    .into(),
+            )
         }
         AE::PreHookError(m) => Error::Server(format!("pre-hook: {m}")),
         AE::PostHookError(m) => Error::Server(format!("post-hook: {m}")),
@@ -189,23 +186,40 @@ struct ErrorBody {
 
 /// Classify a non-2xx response by status code, reading the body to extract
 /// TaskFast's `{error, message}` envelope when relevant.
+///
+/// Body read + JSON parse are best-effort: a transport failure mid-body or a
+/// non-JSON payload collapses to an empty envelope (status line surfaces in
+/// `Display`). Both failure modes emit a `tracing::warn` so silent classifier
+/// drops are observable in logs.
 async fn classify_response(resp: reqwest::Response) -> Error {
     let status = resp.status();
-    let retry_after = parse_retry_after(&resp);
-    // Read body best-effort; network failure mid-body just collapses to a
-    // generic Server error with the status line.
-    let body = resp
-        .text()
-        .await
-        .unwrap_or_else(|_| String::new());
-    let parsed: ErrorBody = serde_json::from_str(&body).unwrap_or_else(|_| ErrorBody {
-        error: String::new(),
-        message: body.clone(),
-    });
-
     let code = status.as_u16();
+    let retry_after = parse_retry_after(&resp);
+    let body = match resp.text().await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(error = %e, %code, "classify_response: failed to read body");
+            String::new()
+        }
+    };
+    let parsed: ErrorBody = match serde_json::from_str(&body) {
+        Ok(p) => p,
+        Err(e) => {
+            if !body.is_empty() {
+                tracing::warn!(error = %e, %code, "classify_response: body is not JSON; using raw text");
+            }
+            ErrorBody {
+                error: String::new(),
+                message: body,
+            }
+        }
+    };
+
     match code {
-        401 | 403 => Error::Auth(display_or_status(&parsed, status.as_str())),
+        401 | 403 => Error::Auth(format_status(
+            code,
+            display_or_status(&parsed, status.as_str()),
+        )),
         422 => Error::Validation {
             code: or_default(&parsed.error, "validation_error"),
             message: or_default(&parsed.message, "request body failed validation"),
@@ -213,15 +227,21 @@ async fn classify_response(resp: reqwest::Response) -> Error {
         429 => Error::RateLimited {
             retry_after: retry_after.unwrap_or(Duration::from_secs(1)),
         },
-        500..=599 => Error::Server(display_or_status(&parsed, status.as_str())),
+        500..=599 => Error::Server(format_status(
+            code,
+            display_or_status(&parsed, status.as_str()),
+        )),
         // 4xx other than the above (404, 409, etc.) — progenitor would have
         // surfaced this as UnexpectedResponse because we stripped non-2xx from
         // the spec. Treat as a validation-ish failure so callers can branch.
         400..=499 => Error::Validation {
             code: or_default(&parsed.error, status.as_str()),
-            message: or_default(&parsed.message, status.canonical_reason().unwrap_or("client error")),
+            message: or_default(
+                &parsed.message,
+                status.canonical_reason().unwrap_or("client error"),
+            ),
         },
-        _ => Error::Server(format!("unexpected status {code}: {body}")),
+        _ => Error::Server(format!("unexpected status {code}: {}", parsed.message)),
     }
 }
 
@@ -233,15 +253,23 @@ fn parse_retry_after(resp: &reqwest::Response) -> Option<Duration> {
 }
 
 fn or_default(s: &str, fallback: &str) -> String {
-    if s.is_empty() { fallback.to_string() } else { s.to_string() }
+    if s.is_empty() {
+        fallback.to_string()
+    } else {
+        s.to_string()
+    }
 }
 
-fn display_or_status(body: &ErrorBody, status: &str) -> String {
+fn display_or_status<'a>(body: &'a ErrorBody, status: &'a str) -> &'a str {
     if !body.message.is_empty() {
-        body.message.clone()
+        &body.message
     } else if !body.error.is_empty() {
-        body.error.clone()
+        &body.error
     } else {
-        status.to_string()
+        status
     }
+}
+
+fn format_status(code: u16, detail: &str) -> String {
+    format!("HTTP {code}: {detail}")
 }

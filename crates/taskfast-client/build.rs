@@ -44,7 +44,8 @@ fn main() {
 
     // Format via syn + prettyplease so the generated file is human-readable
     // when inspecting via `cargo expand` or target/.
-    let ast: syn::File = syn::parse2(tokens).unwrap_or_else(|e| panic!("parse generated tokens: {e}"));
+    let ast: syn::File =
+        syn::parse2(tokens).unwrap_or_else(|e| panic!("parse generated tokens: {e}"));
     let rendered = prettyplease::unparse(&ast);
 
     fs::write(&out_path, rendered)

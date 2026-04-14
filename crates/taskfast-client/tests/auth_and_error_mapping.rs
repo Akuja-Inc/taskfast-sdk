@@ -10,11 +10,11 @@
 //! Also verifies the retry loop *does* retry on 5xx, and stops after
 //! `max_attempts` without infinite-looping.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use taskfast_client::{Error, RetryPolicy, TaskFastClient, map_api_error};
+use taskfast_client::{map_api_error, Error, RetryPolicy, TaskFastClient};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -49,20 +49,17 @@ async fn status_401_maps_to_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/platform/config"))
-        .respond_with(
-            ResponseTemplate::new(401)
-                .set_body_json(serde_json::json!({
-                    "error": "invalid_api_key",
-                    "message": "API key is not recognized",
-                })),
-        )
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": "invalid_api_key",
+            "message": "API key is not recognized",
+        })))
         .mount(&server)
         .await;
 
     let client = fixture_client(&server.uri());
     let err = client.inner().get_platform_config().await.unwrap_err();
     match map_api_error(err).await {
-        Error::Auth(msg) => assert_eq!(msg, "API key is not recognized"),
+        Error::Auth(msg) => assert_eq!(msg, "HTTP 401: API key is not recognized"),
         other => panic!("expected Auth, got {other:?}"),
     }
 }
@@ -72,13 +69,10 @@ async fn status_422_maps_to_validation_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/platform/config"))
-        .respond_with(
-            ResponseTemplate::new(422)
-                .set_body_json(serde_json::json!({
-                    "error": "missing_field",
-                    "message": "name is required",
-                })),
-        )
+        .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
+            "error": "missing_field",
+            "message": "name is required",
+        })))
         .mount(&server)
         .await;
 
@@ -101,7 +95,9 @@ async fn status_429_maps_to_rate_limited_with_retry_after() {
         .respond_with(
             ResponseTemplate::new(429)
                 .insert_header("retry-after", "7")
-                .set_body_json(serde_json::json!({ "error": "rate_limited", "message": "slow down" })),
+                .set_body_json(
+                    serde_json::json!({ "error": "rate_limited", "message": "slow down" }),
+                ),
         )
         .mount(&server)
         .await;
@@ -178,7 +174,7 @@ async fn retry_503_exhausts_max_attempts_then_returns_server_error() {
         .await;
 
     match result {
-        Err(Error::Server(msg)) => assert_eq!(msg, "database unreachable"),
+        Err(Error::Server(msg)) => assert_eq!(msg, "HTTP 503: database unreachable"),
         other => panic!("expected Server error after retry exhaustion, got {other:?}"),
     }
     assert_eq!(
@@ -235,6 +231,9 @@ async fn retry_recovers_when_upstream_heals() {
         })
         .await;
 
-    assert!(result.is_ok(), "expected success on attempt 2, got {result:?}");
+    assert!(
+        result.is_ok(),
+        "expected success on attempt 2, got {result:?}"
+    );
     assert_eq!(responder.count.load(Ordering::SeqCst), 2);
 }

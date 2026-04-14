@@ -63,7 +63,7 @@ async fn validate_auth_401_surfaces_auth_error() {
         .await;
 
     match validate_auth(&client(&server)).await {
-        Err(Error::Auth(m)) => assert_eq!(m, "bad key"),
+        Err(Error::Auth(m)) => assert_eq!(m, "HTTP 401: bad key"),
         other => panic!("expected Auth, got {other:?}"),
     }
 }

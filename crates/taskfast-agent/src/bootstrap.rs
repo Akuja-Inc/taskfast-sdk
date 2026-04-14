@@ -17,7 +17,7 @@
 use taskfast_client::api::types::{
     AgentCreateRequest, AgentCreateResponse, AgentProfile, AgentReadiness,
 };
-use taskfast_client::{Error, Result, TaskFastClient, map_api_error};
+use taskfast_client::{map_api_error, Error, Result, TaskFastClient};
 
 /// `GET /agents/me` — confirms the API key resolves to an active agent.
 ///

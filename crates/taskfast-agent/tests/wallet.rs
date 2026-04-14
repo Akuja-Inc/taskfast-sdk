@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use alloy_primitives::U256;
-use taskfast_agent::wallet::{PollOptions, poll_balance, register_wallet};
+use taskfast_agent::wallet::{poll_balance, register_wallet, PollOptions};
 use taskfast_client::{Error, TaskFastClient};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -32,9 +32,12 @@ async fn register_wallet_returns_setup_response_on_200() {
         .mount(&server)
         .await;
 
-    let resp = register_wallet(&client(&server), "0x71C7656EC7ab88b098defB751B7401B5f6d8976F")
-        .await
-        .expect("200 decodes");
+    let resp = register_wallet(
+        &client(&server),
+        "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+    )
+    .await
+    .expect("200 decodes");
     assert!(resp.ready_to_work);
     assert_eq!(
         resp.tempo_wallet_address,
@@ -131,10 +134,9 @@ async fn poll_balance_times_out_when_balance_stays_zero() {
         poll_interval: Duration::from_millis(10),
     };
     match poll_balance(&client(&server), opts).await {
-        Err(Error::Server(m)) => assert!(
-            m.contains("timeout"),
-            "expected timeout message, got: {m}"
-        ),
+        Err(Error::Server(m)) => {
+            assert!(m.contains("timeout"), "expected timeout message, got: {m}")
+        }
         other => panic!("expected Server timeout error, got {other:?}"),
     }
 }

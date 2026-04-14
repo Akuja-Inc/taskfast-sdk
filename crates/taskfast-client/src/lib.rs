@@ -12,13 +12,20 @@ pub mod client;
 pub mod errors;
 pub mod retry;
 
-pub use client::{TaskFastClient, map_api_error};
+pub use client::{map_api_error, TaskFastClient};
 pub use errors::{Error, Result};
-pub use retry::{RetryPolicy, with_backoff};
+pub use retry::{with_backoff, RetryPolicy};
 
+/// Generated typed client + DTOs for the TaskFast OpenAPI spec.
+///
+/// Produced by `progenitor` from `spec/openapi.yaml` at build time; see
+/// `build.rs` and `xtask::normalize_spec`. Do not edit by hand — regenerate
+/// by changing the spec.
 #[allow(
     clippy::all,
+    clippy::pedantic,
     dead_code,
+    missing_docs,
     non_camel_case_types,
     non_snake_case,
     renamed_and_removed_lints,

@@ -7,7 +7,7 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::events::{Command, PollArgs, run};
+use taskfast_cli::cmd::events::{run, Command, PollArgs};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::{Envelope, Environment};
 

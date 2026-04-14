@@ -12,10 +12,10 @@ use tempfile::TempDir;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::init::{Args, Network, run};
+use taskfast_cli::cmd::init::{run, Args, Network};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::dotenv::EnvFile;
-use taskfast_cli::{Environment, Envelope};
+use taskfast_cli::{Envelope, Environment};
 
 const BYOW_ADDRESS: &str = "0xdEaDbEeF00000000000000000000000000000001";
 
@@ -66,11 +66,7 @@ async fn mount_profile_active(server: &MockServer) {
         .await;
 }
 
-async fn mount_readiness(
-    server: &MockServer,
-    wallet_status: &str,
-    ready_to_work: bool,
-) {
+async fn mount_readiness(server: &MockServer, wallet_status: &str, ready_to_work: bool) {
     Mock::given(method("GET"))
         .and(path("/api/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -326,7 +322,10 @@ async fn generate_wallet_with_password_file_persists_keystore_and_registers() {
         .as_str()
         .expect("address string");
     assert!(addr.starts_with("0x") && addr.len() == 42, "addr: {addr}");
-    assert_eq!(v["data"]["wallet"]["keystore_path"], keystore_path.display().to_string());
+    assert_eq!(
+        v["data"]["wallet"]["keystore_path"],
+        keystore_path.display().to_string()
+    );
 
     assert!(keystore_path.exists(), "keystore must be written");
 
@@ -335,7 +334,10 @@ async fn generate_wallet_with_password_file_persists_keystore_and_registers() {
         loaded.get("TEMPO_KEY_SOURCE"),
         Some(format!("file:{}", keystore_path.display()).as_str())
     );
-    assert_eq!(loaded.get("TEMPO_WALLET_ADDRESS").map(str::to_lowercase), Some(addr.to_lowercase()));
+    assert_eq!(
+        loaded.get("TEMPO_WALLET_ADDRESS").map(str::to_lowercase),
+        Some(addr.to_lowercase())
+    );
 }
 
 // ---- am-z58: --human-api-key headless mint path ----
@@ -402,8 +404,10 @@ async fn dry_run_human_api_key_reports_would_mint_and_skips_post() {
     let v = envelope_value(&envelope);
     assert_eq!(v["dry_run"], true);
     assert_eq!(v["data"]["agent"]["action"], "would_mint");
-    assert!(v["data"]["agent"].get("owner_id").is_none(),
-        "dry-run envelope should not carry owner_id — it is server-derived");
+    assert!(
+        v["data"]["agent"].get("owner_id").is_none(),
+        "dry-run envelope should not carry owner_id — it is server-derived"
+    );
     assert_eq!(v["data"]["env_file"]["written"], false);
     assert_eq!(v["data"]["env_file"]["would_write"], true);
     assert!(!env_path.exists(), "dry-run must not write env file");
