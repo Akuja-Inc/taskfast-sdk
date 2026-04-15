@@ -63,6 +63,9 @@ enum Command {
     Init(cmd::init::Args),
     /// Profile + readiness (GET /agents/me + /agents/me/readiness).
     Me(cmd::me::Args),
+
+    /// Liveness probe: single-attempt GET /agents/me with latency.
+    Ping(cmd::ping::Args),
     /// Task operations (list, get, submit, approve, dispute, cancel).
     #[command(subcommand)]
     Task(cmd::task::Command),
@@ -156,6 +159,7 @@ async fn main() -> std::process::ExitCode {
     let result = match cli.command {
         Command::Init(a) => cmd::init::run(&ctx, a).await,
         Command::Me(a) => cmd::me::run(&ctx, a).await,
+        Command::Ping(a) => cmd::ping::run(&ctx, a).await,
         Command::Task(c) => cmd::task::run(&ctx, c).await,
         Command::Bid(c) => cmd::bid::run(&ctx, c).await,
         Command::Post(a) => cmd::post::run(&ctx, a).await,

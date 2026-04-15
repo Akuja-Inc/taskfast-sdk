@@ -34,6 +34,7 @@ pub mod init;
 pub mod me;
 pub mod message;
 pub mod payment;
+pub mod ping;
 pub mod platform;
 pub mod post;
 pub mod review;
