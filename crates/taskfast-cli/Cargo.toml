@@ -34,6 +34,9 @@ rand = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+futures-util = "0.3"
+url = "2"
 
 [dev-dependencies]
 wiremock = "0.6"

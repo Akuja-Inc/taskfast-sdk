@@ -157,6 +157,12 @@ async fn main() -> std::process::ExitCode {
     );
 
     let result = match cli.command {
+        // `events stream` writes JSONL to stdout and MUST bypass the
+        // Envelope wrapper — otherwise the trailing envelope would
+        // pollute the JSONL contract. Early return with its own exit.
+        Command::Events(cmd::events::Command::Stream(args)) => {
+            return cmd::events::stream::run(&ctx, args).await;
+        }
         Command::Init(a) => cmd::init::run(&ctx, a).await,
         Command::Me(a) => cmd::me::run(&ctx, a).await,
         Command::Ping(a) => cmd::ping::run(&ctx, a).await,

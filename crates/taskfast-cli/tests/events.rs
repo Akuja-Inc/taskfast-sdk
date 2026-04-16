@@ -7,7 +7,7 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::events::{run, Command, PollArgs};
+use taskfast_cli::cmd::events::{run, AckArgs, Command, PollArgs, SchemaArgs};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::{Envelope, Environment};
 
@@ -128,4 +128,200 @@ async fn poll_missing_api_key_errors_before_any_http_call() {
     .await
     .expect_err("no key → MissingApiKey");
     assert!(matches!(err, CmdError::MissingApiKey), "got {err:?}");
+}
+
+#[tokio::test]
+async fn ack_posts_and_returns_acked_at() {
+    let server = MockServer::start().await;
+    let event_id = "00000000-0000-0000-0000-0000000000e1";
+    Mock::given(method("POST"))
+        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "event_id": event_id,
+            "acked_at": "2026-04-16T00:00:00Z",
+        })))
+        .mount(&server)
+        .await;
+
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Ack(AckArgs {
+            event_id: event_id.into(),
+        }),
+    )
+    .await
+    .expect("ack should succeed");
+
+    let v = envelope_value(&envelope);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["event_id"], event_id);
+    assert_eq!(v["data"]["acked_at"], "2026-04-16T00:00:00Z");
+}
+
+#[tokio::test]
+async fn ack_404_surfaces_as_validation_not_found() {
+    let server = MockServer::start().await;
+    let event_id = "00000000-0000-0000-0000-0000000000e2";
+    Mock::given(method("POST"))
+        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "error": "not_found",
+            "message": "Event not found for this agent",
+        })))
+        .mount(&server)
+        .await;
+
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Ack(AckArgs {
+            event_id: event_id.into(),
+        }),
+    )
+    .await
+    .expect_err("404 → Validation");
+    match err {
+        CmdError::Validation { code, .. } => assert_eq!(code, "not_found"),
+        other => panic!("expected Validation, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn ack_422_surfaces_as_validation_invalid_event_id() {
+    let server = MockServer::start().await;
+    let event_id = "not-a-uuid";
+    Mock::given(method("POST"))
+        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .respond_with(ResponseTemplate::new(422).set_body_json(json!({
+            "error": "invalid_event_id",
+            "message": "event_id must be a UUID",
+        })))
+        .mount(&server)
+        .await;
+
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Ack(AckArgs {
+            event_id: event_id.into(),
+        }),
+    )
+    .await
+    .expect_err("422 → Validation");
+    match err {
+        CmdError::Validation { code, .. } => assert_eq!(code, "invalid_event_id"),
+        other => panic!("expected Validation, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn ack_401_surfaces_as_auth_error() {
+    let server = MockServer::start().await;
+    let event_id = "00000000-0000-0000-0000-0000000000e3";
+    Mock::given(method("POST"))
+        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_api_key",
+            "message": "bad key",
+        })))
+        .mount(&server)
+        .await;
+
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Ack(AckArgs {
+            event_id: event_id.into(),
+        }),
+    )
+    .await
+    .expect_err("401 → Auth");
+    assert!(matches!(err, CmdError::Auth(_)), "got {err:?}");
+}
+
+#[tokio::test]
+async fn schema_returns_full_spec_by_default() {
+    let server = MockServer::start().await;
+    let spec = json!({
+        "asyncapi": "2.6.0",
+        "info": { "title": "TaskFast Agent Events", "version": "1" },
+        "components": {
+            "messages": {
+                "TaskAssigned": { "payload": { "type": "object" } },
+                "BidAccepted":  { "payload": { "type": "object" } },
+            }
+        },
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/asyncapi.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(spec.clone()))
+        .mount(&server)
+        .await;
+
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Schema(SchemaArgs { event: None }),
+    )
+    .await
+    .expect("schema should succeed");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["data"]["asyncapi"], "2.6.0");
+    assert!(v["data"]["components"]["messages"]["TaskAssigned"].is_object());
+}
+
+#[tokio::test]
+async fn schema_filters_by_event_key() {
+    let server = MockServer::start().await;
+    let spec = json!({
+        "asyncapi": "2.6.0",
+        "components": {
+            "messages": {
+                "TaskAssigned": { "payload": { "type": "object", "required": ["task_id"] } },
+            }
+        },
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/asyncapi.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(spec))
+        .mount(&server)
+        .await;
+
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Schema(SchemaArgs {
+            event: Some("TaskAssigned".into()),
+        }),
+    )
+    .await
+    .expect("schema filter should succeed");
+    let v = envelope_value(&envelope);
+    assert_eq!(v["data"]["event"], "TaskAssigned");
+    assert_eq!(
+        v["data"]["message"]["payload"]["required"][0],
+        "task_id"
+    );
+}
+
+#[tokio::test]
+async fn schema_unknown_event_is_validation_error() {
+    let server = MockServer::start().await;
+    let spec = json!({
+        "asyncapi": "2.6.0",
+        "components": { "messages": {} },
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/asyncapi.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(spec))
+        .mount(&server)
+        .await;
+
+    let err = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Schema(SchemaArgs {
+            event: Some("MadeUpEvent".into()),
+        }),
+    )
+    .await
+    .expect_err("unknown event → Validation");
+    match err {
+        CmdError::Validation { code, .. } => assert_eq!(code, "unknown_event"),
+        other => panic!("expected Validation, got {other:?}"),
+    }
 }
