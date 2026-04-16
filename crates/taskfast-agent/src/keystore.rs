@@ -9,12 +9,12 @@
 //! 1. Path resolution — XDG-compliant directory layout with `0700` perms on
 //!    the containing dir and `0600` perms on the keyfile.
 //! 2. Encrypt/decrypt — thin wrappers around
-//!    [`PrivateKeySigner::encrypt_keystore`] / [`decrypt_keystore`], which
+//!    `PrivateKeySigner::encrypt_keystore` / `decrypt_keystore`, which
 //!    delegate to `eth-keystore` for the scrypt+AES-128-CTR pipeline.
 //!
 //! # Future: OS keychain
 //!
-//! [`KeySource::Keychain`] is reserved but not yet implemented. When it lands,
+//! `KeySource::Keychain` is reserved but not yet implemented. When it lands,
 //! it'll go behind a `keyring` cargo feature so the default build has no
 //! dbus/secret-service transitive deps. CLI sandboxes that need portable
 //! persistence should use the file backend; keychain support is targeted at

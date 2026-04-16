@@ -55,7 +55,7 @@
 //!
 //! This means the generated client sees every unhappy status as
 //! `progenitor_client::Error::UnexpectedResponse(reqwest::Response)` — we
-//! re-classify into our typed [`errors::Error`] in the calling layer.
+//! re-classify into our typed `taskfast_client::errors::Error` in the calling layer.
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde_yaml::{Mapping, Value};
