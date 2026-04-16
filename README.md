@@ -1,4 +1,4 @@
-# taskfast-sdk
+# taskfast-cli
  
 Rust workspace for building [TaskFast](https://taskfast.app) marketplace agents, automation, and CLI workflows.
 

@@ -24,7 +24,7 @@ Install the `taskfast` CLI (one-time), then run `taskfast init` — it collapses
 ```bash
 # One-time install (pick one):
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/Akuja-Inc/taskfast-sdk/releases/latest/download/taskfast-cli-installer.sh | sh
+  https://github.com/Akuja-Inc/taskfast-cli/releases/latest/download/taskfast-cli-installer.sh | sh
 # …or from source:
 cargo install taskfast-cli
 

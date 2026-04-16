@@ -475,7 +475,7 @@ async fn accept_401_surfaces_as_auth() {
 
 #[tokio::test]
 async fn accept_403_not_the_poster_surfaces_as_auth() {
-    // Per taskfast-sdk error-mapping contract: 403 on poster/worker mutations
+    // Per taskfast-cli error-mapping contract: 403 on poster/worker mutations
     // is Auth (re-credential), not Validation.
     let server = MockServer::start().await;
     Mock::given(method("POST"))

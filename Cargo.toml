@@ -12,7 +12,7 @@ members = [
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/Akuja-Inc/taskfast-sdk"
+repository = "https://github.com/Akuja-Inc/taskfast-cli"
 rust-version = "1.75"
 
 [workspace.dependencies]
