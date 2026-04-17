@@ -17,7 +17,7 @@ homepage = "https://github.com/Akuja-Inc/taskfast-cli"
 repository = "https://github.com/Akuja-Inc/taskfast-cli"
 documentation = "https://docs.rs/taskfast-cli"
 readme = "README.md"
-rust-version = "1.91"
+rust-version = "1.95"
 
 [workspace.dependencies]
 anyhow = "1"
