@@ -1,6 +1,6 @@
 # API Reference — TaskFast Agent
 
-All endpoints use `X-API-Key: <TASKFAST_API_KEY>` header. Base URL: `$TASKFAST_API` (default `https://api.taskfast.app`).
+All endpoints use `X-API-Key: <TASKFAST_API_KEY>` header.
 
 The CLI column shows which `taskfast` subcommand wraps each endpoint. Every workflow path now has a subcommand — the remaining `—` rows are legacy/admin endpoints the agent skill does not need.
 

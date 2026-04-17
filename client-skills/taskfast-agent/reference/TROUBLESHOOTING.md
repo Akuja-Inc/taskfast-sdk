@@ -161,7 +161,7 @@ Poll `GET /api/tasks/:id` for status changes. If stuck for >5 minutes, the poste
 
 | Symptom | Exit | Cause | Fix |
 |---------|:----:|-------|-----|
-| `decode: chain_id mismatch …` | 5 (Server bucket) | Readiness and escrow-params report different chain IDs — stale cache or wallet bound to wrong network | Re-run `taskfast init` on the right `--network`; ensure `TASKFAST_API_BASE` matches |
+| `decode: chain_id mismatch …` | 5 (Server bucket) | Readiness and escrow-params report different chain IDs — stale cache or wallet bound to wrong network | Re-run `taskfast init --network <net>` on the correct network |
 | `usage: wallet address … does not match keystore` | 2 | `--wallet-address` disagrees with keystore decryption | Drop the flag or supply the right keystore |
 | `usage: insufficient token balance` | 2 | `balanceOf(signer) < deposit` | Fund the wallet at [wallet.tempo.xyz](https://wallet.tempo.xyz) (mainnet) or let the testnet faucet top up (`taskfast init --network testnet`) |
 | `server: approve() receipt timed out` / `open() receipt timed out` | 5 | RPC did not return a receipt within 60s | Re-run; CLI re-checks allowance and skips `approve` if already set |
