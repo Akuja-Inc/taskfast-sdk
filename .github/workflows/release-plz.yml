@@ -22,7 +22,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Release-plz (release + PR)
-        uses: release-plz/action@7c67c3b3f78808dc41a8e0d0bf1909e56e15e59f # v0.5.87
+        uses: release-plz/action@395042a06223c60c3e953d5fa124e97dfef96672 # v0.5.87
         with:
           command: release
         env:
