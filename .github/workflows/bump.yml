@@ -33,6 +33,9 @@ permissions:
 
 jobs:
   bump:
+    # Guard against accidental dispatch from a feature branch: a bump from
+    # non-main would still tag+push, publishing a release off the wrong commit.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -167,8 +167,9 @@ fn run_bump(level: BumpLevel, no_lock: bool, dry_run: bool) -> Result<()> {
     }
 
     let doc_for = |file: &str, docs: &[(PathBuf, DocumentMut)]| -> usize {
+        let target = workspace_root.join(file);
         docs.iter()
-            .position(|(p, _)| p.ends_with(file) || p == &workspace_root.join(file))
+            .position(|(p, _)| p == &target)
             .expect("file preloaded")
     };
 
@@ -302,4 +303,99 @@ fn find_workspace_root() -> Result<PathBuf> {
         "no ancestor Cargo.toml with [workspace] found from {}",
         start.display()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bump_patch_basic() {
+        assert_eq!(bump_semver("0.2.1", BumpLevel::Patch).unwrap(), "0.2.2");
+    }
+
+    #[test]
+    fn bump_minor_resets_patch() {
+        assert_eq!(bump_semver("0.2.5", BumpLevel::Minor).unwrap(), "0.3.0");
+    }
+
+    #[test]
+    fn bump_major_resets_minor_and_patch() {
+        assert_eq!(bump_semver("1.4.7", BumpLevel::Major).unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn bump_handles_zero_versions() {
+        assert_eq!(bump_semver("0.0.0", BumpLevel::Patch).unwrap(), "0.0.1");
+        assert_eq!(bump_semver("0.0.0", BumpLevel::Minor).unwrap(), "0.1.0");
+        assert_eq!(bump_semver("0.0.0", BumpLevel::Major).unwrap(), "1.0.0");
+    }
+
+    #[test]
+    fn bump_rejects_prerelease() {
+        let err = bump_semver("0.2.1-alpha", BumpLevel::Patch).unwrap_err();
+        assert!(
+            err.to_string().contains("pre-release"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn bump_rejects_build_metadata() {
+        let err = bump_semver("0.2.1+build.7", BumpLevel::Patch).unwrap_err();
+        assert!(
+            err.to_string().contains("pre-release"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn bump_rejects_two_segment_version() {
+        let err = bump_semver("1.2", BumpLevel::Patch).unwrap_err();
+        assert!(
+            err.to_string().contains("MAJOR.MINOR.PATCH"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn bump_rejects_non_numeric_segment() {
+        let err = bump_semver("0.x.0", BumpLevel::Patch).unwrap_err();
+        assert!(
+            err.to_string().contains("parse minor"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn toml_roundtrip_preserves_formatting() {
+        // Note: toml_edit's `value()` replaces trailing decor on the value
+        // itself, so inline comments on the bumped line are not preserved.
+        // Structural comments (section banners, free-floating) survive, which
+        // is what actually matters for diff ergonomics.
+        let src = r#"# top comment
+[workspace.package]
+version = "0.2.1"
+
+# between sections
+[workspace.dependencies]
+taskfast-agent = { path = "crates/taskfast-agent", version = "0.2.1" }
+"#;
+        let mut doc: DocumentMut = src.parse().unwrap();
+        assert_eq!(
+            read_toml_string(&doc, &["workspace", "package", "version"]).unwrap(),
+            "0.2.1"
+        );
+        write_toml_string(&mut doc, &["workspace", "package", "version"], "0.3.0");
+        write_toml_string(
+            &mut doc,
+            &["workspace", "dependencies", "taskfast-agent", "version"],
+            "0.3.0",
+        );
+        let out = doc.to_string();
+        assert!(out.contains("# top comment"), "lost top comment");
+        assert!(out.contains("# between sections"), "lost section comment");
+        assert!(out.contains("version = \"0.3.0\""));
+        assert!(!out.contains("\"0.2.1\""));
+    }
 }

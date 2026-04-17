@@ -45,7 +45,7 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
-toml_edit = "0.22"
+toml_edit = "0.25"
 
 taskfast-client = { path = "crates/taskfast-client", version = "0.3.0" }
 taskfast-chains = { path = "crates/taskfast-chains", version = "0.1.0", default-features = false }
