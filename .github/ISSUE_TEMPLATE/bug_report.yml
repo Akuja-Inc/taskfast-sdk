@@ -53,6 +53,6 @@ body:
       description: OS, Rust version (`rustc -vV`), any relevant env vars.
       placeholder: |
         OS: Ubuntu 22.04
-        rustc: 1.75.0
+        rustc: 1.95.0
     validations:
       required: false
