@@ -241,7 +241,10 @@ async fn classify_response(resp: reqwest::Response) -> Error {
                 status.canonical_reason().unwrap_or("client error"),
             ),
         },
-        _ => Error::Server(format!("unexpected status {code}: {}", parsed.message)),
+        _ => Error::Server(format_status(
+            code,
+            display_or_status(&parsed, status.as_str()),
+        )),
     }
 }
 

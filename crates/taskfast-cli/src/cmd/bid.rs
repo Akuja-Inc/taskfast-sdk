@@ -143,6 +143,10 @@ async fn list_bids(
     // Client-side filter: server has no status query param on /agents/me/bids.
     // Bids lacking a status field (shouldn't happen on real responses) are
     // dropped when a filter is supplied so we don't silently pass them through.
+    // `meta` describes the *server* page pre-filter; `filtered_count` is added
+    // when a filter applies so consumers can distinguish page semantics from
+    // the filtered result count.
+    let filter_applied = args.status.is_some();
     let bids = match args.status {
         Some(f) => resp
             .data
@@ -151,10 +155,18 @@ async fn list_bids(
             .collect::<Vec<_>>(),
         None => resp.data,
     };
-    Ok(json!({
-        "bids": bids,
-        "meta": resp.meta,
-    }))
+    if filter_applied {
+        Ok(json!({
+            "bids": bids,
+            "meta": resp.meta,
+            "filtered_count": bids.len(),
+        }))
+    } else {
+        Ok(json!({
+            "bids": bids,
+            "meta": resp.meta,
+        }))
+    }
 }
 
 async fn create(ctx: &Ctx, args: CreateArgs) -> CmdResult {

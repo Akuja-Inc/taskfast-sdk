@@ -137,7 +137,8 @@ async fn main() -> std::process::ExitCode {
             // a Ctx — fall back to defaults for the error envelope.
             if !cli.quiet {
                 let err = cmd::CmdError::Usage(format!("config: {e}"));
-                Envelope::error(cmd::DEFAULT_ENVIRONMENT, cli.dry_run, &err).emit();
+                let env = cli.env.unwrap_or(cmd::DEFAULT_ENVIRONMENT);
+                Envelope::error(env, cli.dry_run, &err).emit();
             }
             return exit::ExitCode::Usage.into();
         }

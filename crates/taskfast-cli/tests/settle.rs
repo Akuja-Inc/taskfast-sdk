@@ -311,10 +311,6 @@ async fn settle_dry_run_skips_post_but_still_signs() {
 }
 
 #[tokio::test]
-#[allow(
-    unsafe_code,
-    reason = "test mutates env vars; std::env::set_var/remove_var require unsafe in 2024+"
-)]
 async fn settle_missing_keystore_is_usage_error() {
     let server = MockServer::start().await;
     let keys = fresh_keys();
@@ -324,29 +320,14 @@ async fn settle_missing_keystore_is_usage_error() {
 
     // Strip the keystore so the signer load fails. The settle command is
     // supposed to require it even in dry-run (bead acceptance spec).
+    // `TEMPO_KEY_SOURCE` is only read via clap's `#[arg(env = ...)]`, which
+    // never fires when Args is built manually — no env mutation needed.
     let mut args = base_args(&keys);
     args.keystore = None;
-    // Clear the env fallback too — `clap` already read it at Args construction
-    // time in production, but since we're building Args manually we just have
-    // to make sure the test environment isn't leaking one in.
-    let prev = std::env::var_os("TEMPO_KEY_SOURCE");
-    // SAFETY: single-threaded within this test; env mutation is local.
-    // Wiremock server lives on its own task but doesn't read this var.
-    unsafe {
-        std::env::remove_var("TEMPO_KEY_SOURCE");
-    }
 
     let err = run(&ctx_for(&server, Some("test-key")), args)
         .await
         .expect_err("settle without keystore must fail");
-
-    // Restore whatever the outer environment had.
-    if let Some(v) = prev {
-        // SAFETY: see above.
-        unsafe {
-            std::env::set_var("TEMPO_KEY_SOURCE", v);
-        }
-    }
 
     match err {
         CmdError::Usage(msg) => assert!(

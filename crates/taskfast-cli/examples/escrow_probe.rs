@@ -224,10 +224,16 @@ async fn main() {
 
 fn decimal_to_u256(s: &str, decimals: u8) -> U256 {
     let (w, f) = s.split_once('.').unwrap_or((s, ""));
+    let max = decimals as usize;
+    assert!(
+        f.len() <= max,
+        "decimal_to_u256: {s} has {} fractional digits, exceeds token decimals {max}",
+        f.len()
+    );
     let mut combined = String::new();
     combined.push_str(w);
     combined.push_str(f);
-    for _ in 0..(decimals as usize - f.len()) {
+    for _ in 0..max.saturating_sub(f.len()) {
         combined.push('0');
     }
     let stripped = combined.trim_start_matches('0');
