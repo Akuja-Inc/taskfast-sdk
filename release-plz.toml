@@ -6,6 +6,9 @@ semver_check = false
 
 [[package]]
 name = "taskfast-cli"
+# cargo-dist owns tag/release; no crates.io publish. release-plz can't
+# compute diffs without a registry baseline, so skip release for this crate.
+release = false
 changelog_include = ["taskfast-cli"]
 
 [[package]]
