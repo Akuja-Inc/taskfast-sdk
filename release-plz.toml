@@ -1,25 +1,21 @@
 [workspace]
 changelog_update = true
-git_release_enable = false
-publish = true
-semver_check = true
+git_release_enable = true
+publish = false
+semver_check = false
 
 [[package]]
 name = "taskfast-cli"
-publish = true
 changelog_include = ["taskfast-cli"]
 
 [[package]]
 name = "taskfast-agent"
-publish = false
 release = false
 
 [[package]]
 name = "taskfast-client"
-publish = false
 release = false
 
 [[package]]
 name = "taskfast-chains"
-publish = false
 release = false
