@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# pre-push — slow gate. Mirrors .github/workflows/ci.yml exactly for
+# clippy, test, doc. cargo-deny / cargo-audit stay CI-only (advisory-db
+# flaps; see plan).
+#
+# Skip with: git push --no-verify
+# Install:   ./.githooks/install.sh
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Same env as CI — RUSTFLAGS=-D warnings keeps local behavior identical.
+export RUSTFLAGS="${RUSTFLAGS:--D warnings}"
+export CARGO_TERM_COLOR="${CARGO_TERM_COLOR:-always}"
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+
+step() { echo; echo "pre-push: $*"; }
+
+step "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings"
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+step "cargo test --workspace --locked"
+cargo test --workspace --locked
+
+step "cargo doc --workspace --no-deps --locked (RUSTDOCFLAGS=-D warnings)"
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+
+echo
+echo "pre-push: ok"

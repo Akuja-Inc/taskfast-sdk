@@ -257,9 +257,9 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
     // Sanity: the wallet address in the draft must match what we're signing
     // with. A mismatch means the server recorded a charge on a wallet we
     // don't control, which would poll forever.
-    let parsed_wallet_address = wallet_address.parse::<Address>().map_err(|_| {
-        CmdError::Usage(format!("invalid wallet address: {}", wallet_address))
-    })?;
+    let parsed_wallet_address = wallet_address
+        .parse::<Address>()
+        .map_err(|_| CmdError::Usage(format!("invalid wallet address: {}", wallet_address)))?;
     if signer.address() != parsed_wallet_address {
         return Err(CmdError::Usage(format!(
             "keystore address {:#x} does not match --wallet-address {}",

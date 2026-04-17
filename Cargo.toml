@@ -54,6 +54,7 @@ taskfast-agent = { path = "crates/taskfast-agent", version = "0.2.0" }
 unsafe_code = "deny"
 missing_docs = "warn"
 unreachable_pub = "warn"
+unused_must_use = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -89,6 +90,10 @@ manual_let_else = "allow"
 single_match = "allow"
 from_iter_instead_of_collect = "allow"
 uninlined_format_args = "allow"
+# Catch stray debugging / unfinished code before it lands.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
 
 [profile.release]
 lto = "thin"

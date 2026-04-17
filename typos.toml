@@ -1,3 +1,11 @@
+[files]
+extend-exclude = [
+    "target/",
+    "Cargo.lock",
+    "*.lock",
+    ".git/",
+]
+
 [default.extend-identifiers]
 "am-iit" = "am-iit"
 

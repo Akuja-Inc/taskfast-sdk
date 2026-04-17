@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# pre-commit — fast gate. Blocks commit on fmt violations.
+#
+# Skip with: git commit --no-verify  (use sparingly; CI will still catch)
+# Install:   ./.githooks/install.sh
+
+set -euo pipefail
+
+# Jump to repo root so cargo finds the workspace manifest regardless of cwd.
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-commit: cargo fmt --all -- --check"
+if ! cargo fmt --all -- --check; then
+    cat >&2 <<'EOF'
+
+pre-commit: formatting violations above.
+Fix with:  cargo fmt --all
+Bypass:    git commit --no-verify  (discouraged — CI will block)
+EOF
+    exit 1
+fi
+
+# Soft typos gate — only runs if binary present. Install: cargo install typos-cli
+if command -v typos >/dev/null 2>&1; then
+    echo "pre-commit: typos"
+    if ! typos; then
+        echo >&2 "pre-commit: typos found. Fix or add to typos.toml." >&2
+        exit 1
+    fi
+fi
+
+echo "pre-commit: ok"

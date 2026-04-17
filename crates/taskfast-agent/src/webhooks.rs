@@ -170,8 +170,8 @@ pub fn verify_signature(
 
     // Mac::new_from_slice accepts any key length for HMAC; only length-0
     // secrets are a protocol violation and we've already rejected those.
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .map_err(|_| SignatureError::EmptySecret)?;
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| SignatureError::EmptySecret)?;
     mac.update(timestamp.as_bytes());
     mac.update(b".");
     mac.update(body.as_bytes());
@@ -183,8 +183,8 @@ pub fn verify_signature(
 /// callers can produce matching signatures in their own tests without
 /// reimplementing the canonical-string rules.
 pub fn sign_payload(secret: &str, timestamp: &str, body: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC should accept non-empty secret");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC should accept non-empty secret");
     mac.update(timestamp.as_bytes());
     mac.update(b".");
     mac.update(body.as_bytes());
