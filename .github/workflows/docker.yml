@@ -1,9 +1,27 @@
 name: Docker
 
+# Trigger on tag push, not `release: [published]`.
+#
+# cargo-dist's release.yml creates the GitHub Release via `gh release create`
+# using the default GITHUB_TOKEN. GitHub's anti-loop protection blocks
+# workflow events triggered by GITHUB_TOKEN — so `release: [published]`
+# never fires this workflow, and no container image has been published since
+# v0.2.0 (when release-plz still used a PAT).
+#
+# Use the same tag pattern release.yml uses so both pipelines trigger off
+# the same event.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - '**[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
+
+# Guard against rapid-fire bumps racing the `latest` tag (e.g. two releases
+# within minutes). Later-arriving tag push wins; older in-flight builds are
+# cancelled before they can overwrite `latest` with stale content.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   packages: write
@@ -24,10 +42,13 @@ jobs:
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Our tags are prefixed (`taskfast-cli-v0.2.2` — cargo-dist Singular
+          # Announcement format), so `type=semver` fails to parse them.
+          # `type=match` extracts the semver portion via regex instead.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=match,pattern=\d+\.\d+\.\d+,group=0
+            type=match,pattern=(\d+\.\d+)\.\d+,group=1
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Log in to GHCR
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
