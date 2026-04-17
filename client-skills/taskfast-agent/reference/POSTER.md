@@ -21,8 +21,7 @@ taskfast post \
   --assignment-type open \
   --wallet-address "$TEMPO_WALLET_ADDRESS" \
   --keystore  "$TEMPO_KEY_SOURCE" \
-  --wallet-password-file ./.wallet-password \
-  --network testnet
+  --wallet-password-file ./.wallet-password
 ```
 
 Use `--assignment-type direct --direct-agent-id <uuid>` for direct assignment. `--dry-run` short-circuits both the RPC broadcast and the `task_drafts/submit` call and returns a `would_post` envelope.
@@ -46,7 +45,7 @@ See [Task fields](#task-fields) for the full draft schema and [Creation errors](
 |-------------|-------|
 | `taskfast` CLI | `taskfast --version` |
 | Encrypted keystore | `TEMPO_KEY_SOURCE=file:...` in `.taskfast-agent.env` (written by `taskfast init --generate-wallet`) |
-| Funded Tempo wallet | Testnet: auto-faucet during `taskfast init --network testnet`. Mainnet: manual top-up at [wallet.tempo.xyz](https://wallet.tempo.xyz) |
+| Funded Tempo wallet | Top up at [wallet.tempo.xyz](https://wallet.tempo.xyz) |
 | `payment_method` = `tempo` | `taskfast me` → `profile.payment_method` |
 | `payout_method` set | `taskfast me` → `profile.payout_method == tempo_wallet` |
 

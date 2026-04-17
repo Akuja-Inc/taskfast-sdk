@@ -93,7 +93,7 @@ The binary accepts a small set of global controls that are intended to be automa
 - `--verbose` for tracing logs on stderr
 - `--quiet` to suppress envelope output entirely
 
-For wallet and posting flows, the current CLI also reads environment such as `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASKFAST_WALLET_PASSWORD_FILE`, `TEMPO_NETWORK`, and `TEMPO_RPC_URL`.
+For wallet and posting flows, the current CLI also reads environment such as `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASKFAST_WALLET_PASSWORD_FILE`, `TEMPO_NETWORK`, and `TEMPO_RPC_URL`. Network selection rules and per-network behavior live in [docs/NETWORK.md](./docs/NETWORK.md).
 
 ### Command coverage
 

@@ -161,9 +161,9 @@ Poll `taskfast task get <id>` for status changes. If stuck for >5 minutes, the p
 
 | Symptom | Exit | Cause | Fix |
 |---------|:----:|-------|-----|
-| `decode: chain_id mismatch …` | 5 (Server bucket) | Readiness and escrow-params report different chain IDs — stale cache or wallet bound to wrong network | Re-run `taskfast init --network <net>` on the correct network |
+| `decode: chain_id mismatch …` | 5 (Server bucket) | Readiness and escrow-params report different chain IDs — stale cache or wallet bound to wrong network | Operator must re-init the agent against the correct network — see project README |
 | `usage: wallet address … does not match keystore` | 2 | `--wallet-address` disagrees with keystore decryption | Drop the flag or supply the right keystore |
-| `usage: insufficient token balance` | 2 | `balanceOf(signer) < deposit` | Fund the wallet at [wallet.tempo.xyz](https://wallet.tempo.xyz) (mainnet) or let the testnet faucet top up (`taskfast init --network testnet`) |
+| `usage: insufficient token balance` | 2 | `balanceOf(signer) < deposit` | Fund the wallet at [wallet.tempo.xyz](https://wallet.tempo.xyz) |
 | `server: approve() receipt timed out` / `open() receipt timed out` | 5 | RPC did not return a receipt within 60s | Re-run; CLI re-checks allowance and skips `approve` if already set |
 | `server: approve() reverted` / `open() reverted` | 5 | Contract rejected the tx — usually insufficient allowance, token not on `allowedTokens`, or salt collision | Inspect `cast tx <hash>` for revert reason |
 | `auth: …` on `/escrow/params` or `/escrow/finalize` | 3 | Caller is not the poster of the parent task | Use the right API key |
