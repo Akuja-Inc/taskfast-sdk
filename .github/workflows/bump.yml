@@ -3,7 +3,8 @@
 # Click "Run workflow" in the Actions tab on the `main` branch. CI will:
 #   1. `cargo xtask bump patch` (bumps the 3 synced version sites + Cargo.lock)
 #   2. commit the diff as `chore(release): vX.Y.Z`
-#   3. tag `taskfast-cli-vX.Y.Z`
+#   3. tag `taskfast-cli-vX.Y.Z` (annotated — lightweight tags get dropped by
+#      `git push --follow-tags`, which previously broke the 0.2.2 release)
 #   4. push commit + tag via the RELEASE_PLZ_TOKEN secret — the tag push re-triggers
 #      release.yml (cargo-dist). A default GITHUB_TOKEN push would NOT trigger
 #      another workflow (GitHub anti-loop), hence the PAT.
@@ -71,5 +72,11 @@ jobs:
         run: |
           git add Cargo.toml Cargo.lock crates/taskfast-client/Cargo.toml
           git commit -m "chore(release): v$VERSION"
-          git tag "taskfast-cli-v$VERSION"
-          git push --follow-tags
+          # Annotated tag (-a) — `git push --follow-tags` silently skips
+          # lightweight tags, which previously caused release.yml to never
+          # fire and left an orphaned commit on main. See 0.2.2 postmortem.
+          git tag -a "taskfast-cli-v$VERSION" -m "Release $VERSION"
+          # Push branch + tag explicitly (belt and suspenders — the annotated
+          # tag would ride --follow-tags, but being explicit makes the intent
+          # obvious and survives future refactors).
+          git push origin main "taskfast-cli-v$VERSION"
