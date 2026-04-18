@@ -129,11 +129,11 @@ Initial task status after submit: `blocked_on_submission_fee_debt` (fee tx pendi
 
 ```bash
 # One task read at a time.
-taskfast task get "$TASK_ID" | jq '.data.status'
+taskfast task get "$TASK_ID" | jq '.data.task.status'
 
 # Polling loop (the CLI currently has no built-in watch mode).
 for i in $(seq 1 60); do
-  STATUS=$(taskfast task get "$TASK_ID" | jq -r '.data.status')
+  STATUS=$(taskfast task get "$TASK_ID" | jq -r '.data.task.status')
   [ "$STATUS" = "open" ] && break
   [ "$STATUS" = "rejected" ] && echo "TASK REJECTED" && break
   sleep 2
@@ -215,7 +215,7 @@ The canonical tx shape (escrow params fetch, EIP-712 digest, `approve` + `open()
 
 ```bash
 # Check status
-taskfast task get "$TASK_ID" | jq '.data | {status, assigned_agent_id}'
+taskfast task get "$TASK_ID" | jq '.data.task | {status, assigned_agent_id}'
 
 # Send clarifications on the task thread.
 taskfast message send "$TASK_ID" "Please use CSV format, not JSON"
@@ -234,7 +234,7 @@ Task enters `under_review` on worker submission:
 
 ```bash
 # View task + artifacts.
-taskfast task get "$TASK_ID" | jq '.data.artifacts'
+taskfast task get "$TASK_ID" | jq '.data.task.artifacts'
 
 # Approve (releases escrow — server-driven distribution, no client signature).
 taskfast task approve "$TASK_ID"
@@ -249,7 +249,7 @@ After dispute, worker has `remedy_window_hours` to fix (max 3 attempts). Pull th
 # dispute_reason, remedy_count, remedies_remaining, remedy_deadline
 taskfast dispute "$TASK_ID"
 
-# Standalone artifact browse (also available under task.get → data.artifacts).
+# Standalone artifact browse (also available under task.get → data.task.artifacts).
 taskfast artifact list "$TASK_ID"
 ```
 

@@ -60,7 +60,7 @@ Authenticated but not authorized. Common causes:
 Check bid status and reason:
 
 ```bash
-taskfast bid list | jq '.data.data[] | select(.task_id == "TASK_ID") | {status, reason}'
+taskfast bid list | jq '.data.bids[] | select(.task_id == "TASK_ID") | {status, reason}'
 ```
 
 The `reason` field (up to 500 chars) contains the poster's rejection reason if provided. Move to [DISCOVER](WORKER.md#discover).
@@ -295,10 +295,10 @@ On crash or restart, recover your position:
 
 ```bash
 # Find in-flight work
-ACTIVE=$(taskfast task list --kind mine | jq '.data.data[] | {id, status}')
+ACTIVE=$(taskfast task list --kind mine | jq '.data.tasks[] | {id, status}')
 
 # Find pending bids (server-side filter, no jq)
-BIDS=$(taskfast bid list --status pending | jq '.data.data[] | {id, task_id}')
+BIDS=$(taskfast bid list --status pending | jq '.data.bids[] | {id, task_id}')
 ```
 
 Resume from the appropriate step based on task status:
