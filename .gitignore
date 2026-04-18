@@ -20,3 +20,7 @@ wallet.json
 *.pfx
 # Ad-hoc scratch files.
 *criteria*.json
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
