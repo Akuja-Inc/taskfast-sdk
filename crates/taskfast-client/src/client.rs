@@ -119,6 +119,26 @@ impl TaskFastClient {
         with_backoff(self.policy, op).await
     }
 
+    /// `GET /users/me` — fetch the human owner's display name + email.
+    ///
+    /// Hand-rolled because the endpoint is not yet in `spec/openapi.yaml`
+    /// (server-side work in flight). 404 is promoted to `Ok(None)` so
+    /// callers can gracefully fall back when running against an older
+    /// server deployment; every other non-2xx is surfaced via the shared
+    /// `classify_response` funnel.
+    pub async fn get_user_profile(&self) -> Result<Option<UserProfile>> {
+        let url = format!("{}/users/me", self.inner.baseurl());
+        let resp = self.inner.client().get(url).send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(Some(resp.json::<UserProfile>().await?));
+        }
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        Err(classify_response(resp).await)
+    }
+
     /// Upload a file artifact to `POST /tasks/{task_id}/artifacts`.
     ///
     /// Hand-rolled because progenitor's default templates skip `multipart/
@@ -172,6 +192,18 @@ pub async fn map_api_error(err: api::Error<()>) -> Error {
         AE::PreHookError(m) => Error::Server(format!("pre-hook: {m}")),
         AE::PostHookError(m) => Error::Server(format!("post-hook: {m}")),
     }
+}
+
+/// Owning human's display name + email, returned by `GET /users/me`.
+/// Lives alongside the hand-rolled fetch until the endpoint is added to
+/// `spec/openapi.yaml` and the type can be regenerated under
+/// [`api::types`](crate::api::types).
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserProfile {
+    /// Display name for the owning human (e.g. `"Alice Smith"`).
+    pub name: String,
+    /// Owning human's email address.
+    pub email: String,
 }
 
 #[derive(Debug, Deserialize)]

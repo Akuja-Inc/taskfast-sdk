@@ -15,7 +15,7 @@ use std::time::Duration;
 use rust_decimal::Decimal;
 use thiserror::Error;
 
-use crate::config::Config;
+use crate::config::{Config, ConfigError};
 use crate::envelope::Envelope;
 use crate::exit::ExitCode;
 use crate::Environment;
@@ -33,6 +33,7 @@ pub mod dispute;
 pub mod escrow;
 pub mod events;
 pub mod init;
+pub mod init_tui;
 pub mod me;
 pub mod message;
 pub mod payment;
@@ -49,6 +50,7 @@ pub mod webhook;
 /// Shared invocation context threaded through every subcommand.
 ///
 /// Built once in `main` from parsed global flags; subcommands only read.
+#[derive(Clone)]
 pub struct Ctx {
     pub api_key: Option<String>,
     pub environment: Environment,
@@ -272,6 +274,9 @@ pub enum CmdError {
 
     #[error("not yet implemented: {0}")]
     Unimplemented(&'static str),
+
+    #[error(transparent)]
+    Config(#[from] ConfigError),
 }
 
 impl CmdError {
@@ -289,13 +294,14 @@ impl CmdError {
             Self::Keystore(_) => "keystore",
             Self::Signing(_) => "signing",
             Self::Unimplemented(_) => "unimplemented",
+            Self::Config(_) => "config",
         }
     }
 
     /// Stable exit-code bucket — see [`ExitCode`] docstring for the taxonomy.
     pub fn exit_code(&self) -> ExitCode {
         match self {
-            Self::MissingApiKey | Self::Usage(_) => ExitCode::Usage,
+            Self::MissingApiKey | Self::Usage(_) | Self::Config(_) => ExitCode::Usage,
             Self::Auth(_) => ExitCode::Auth,
             Self::RateLimited { .. } => ExitCode::RateLimited,
             Self::Validation { .. } => ExitCode::Validation,
@@ -364,6 +370,10 @@ mod tests {
             "keystore" => CmdError::Keystore("bad pw".into()),
             "signing" => CmdError::Signing("hsm".into()),
             "unimplemented" => CmdError::Unimplemented("soon"),
+            "config" => CmdError::Config(ConfigError::Io {
+                path: PathBuf::from("/x"),
+                source: std::io::Error::other("boom"),
+            }),
             _ => unreachable!(),
         }
     }
@@ -380,6 +390,7 @@ mod tests {
         "keystore",
         "signing",
         "unimplemented",
+        "config",
     ];
 
     #[test]
@@ -406,6 +417,7 @@ mod tests {
         assert_eq!(sample("keystore").exit_code(), ExitCode::Wallet);
         assert_eq!(sample("signing").exit_code(), ExitCode::Wallet);
         assert_eq!(sample("unimplemented").exit_code(), ExitCode::Unimplemented);
+        assert_eq!(sample("config").exit_code(), ExitCode::Usage);
     }
 
     #[test]

@@ -2,8 +2,8 @@
 //! for the pending-escrow bid, by narrowing down the inputs via `eth_call`.
 //!
 //! Run: `BID=<uuid> cargo run --example escrow_probe -p taskfast-cli`
-//! Needs `.taskfast-agent.env` sourced (TASKFAST_API, TASKFAST_API_KEY,
-//! TEMPO_KEY_SOURCE, TASKFAST_WALLET_PASSWORD_FILE).
+//! Needs env vars exported: TASKFAST_API, TASKFAST_API_KEY,
+//! TEMPO_KEY_SOURCE, TASKFAST_WALLET_PASSWORD_FILE.
 
 use std::env;
 

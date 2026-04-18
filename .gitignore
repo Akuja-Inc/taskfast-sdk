@@ -11,9 +11,6 @@ spec/openapi.normalized.yaml
 *.log
 # CLI project-local config dir (contains secrets — mode 0600).
 .taskfast/
-# Legacy dotenv from pre-JSON-config builds. Left on disk after migration
-# so users can audit before removing; never commit.
-.taskfast-agent.env
 # Never commit secret material.
 *.pw
 wallet.json

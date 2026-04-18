@@ -30,6 +30,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 clap = { version = "4", features = ["derive", "env"] }
+dialoguer = { version = "0.11", default-features = false, features = ["password"] }
 futures = "0.3"
 uuid = { version = "1", features = ["serde", "v4"] }
 

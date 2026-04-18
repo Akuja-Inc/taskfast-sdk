@@ -18,7 +18,7 @@ taskfast init \
 taskfast init --api-key "$TASKFAST_API_KEY" --generate-wallet
 ```
 
-`taskfast init` performs every section below — validate environment, status gate, readiness gate, wallet generation + keystore persistence, address registration, `./.taskfast-agent.env` (chmod 600) — and is idempotent on re-run. Fund the wallet at [wallet.tempo.xyz](https://wallet.tempo.xyz) before bidding. The rest of this document is the manual fallback: read it when the CLI errors, or when you need to understand what it is doing to recover from a broken state.
+`taskfast init` performs every section below — validate environment, status gate, readiness gate, wallet generation + keystore persistence, address registration, `./.taskfast/config.json` (chmod 600) — and is idempotent on re-run. Fund the wallet at [wallet.tempo.xyz](https://wallet.tempo.xyz) before bidding. The rest of this document is the manual fallback: read it when the CLI errors, or when you need to understand what it is doing to recover from a broken state.
 
 > Webhook flags fold into the same `taskfast init` run (see `taskfast init --help`). Standalone: `taskfast webhook register|test|subscribe|get|delete`.
 

@@ -2,9 +2,7 @@
 //!
 //! Persistent state written by `taskfast init` (and edited via
 //! `taskfast config set`) so subsequent subcommands work in a fresh
-//! shell without sourcing anything. Replaces the shell-sourceable
-//! `.taskfast-agent.env` written by earlier builds — a one-shot
-//! migration lives in `Config::load`.
+//! shell without sourcing anything.
 //!
 //! # Layout
 //!
@@ -43,7 +41,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::dotenv::{self, EnvFile};
 use crate::Environment;
 
 /// Default project-local path, relative to the CWD.
@@ -67,12 +64,6 @@ pub enum ConfigError {
         path: PathBuf,
         #[source]
         source: serde_json::Error,
-    },
-    #[error("legacy dotenv {path}: {source}")]
-    LegacyDotenv {
-        path: PathBuf,
-        #[source]
-        source: dotenv::DotenvError,
     },
 }
 
@@ -247,83 +238,6 @@ impl Config {
     pub fn default_path() -> PathBuf {
         PathBuf::from(DEFAULT_CONFIG_PATH)
     }
-
-    /// Like [`Config::load`], plus a one-shot migration: if the JSON
-    /// file is missing and a legacy `.taskfast-agent.env` exists in
-    /// the expected project root (the grandparent of `path`, i.e. the
-    /// directory above `.taskfast/`), its contents are folded into a
-    /// fresh `Config`, the JSON is written, and a one-line note is
-    /// emitted via `tracing::info!`.
-    ///
-    /// Subsequent runs find the JSON and skip this path entirely. The
-    /// old dotenv file is left on disk — the user removes it when
-    /// comfortable that the migration took.
-    ///
-    /// Pure JSON load (no migration) is still available via
-    /// [`Config::load`].
-    pub fn load_or_migrate(path: &Path) -> Result<Self, ConfigError> {
-        if path.exists() {
-            Self::load(path)
-        } else {
-            Self::try_migrate(path, legacy_dotenv_for(path).as_deref())
-        }
-    }
-
-    fn try_migrate(config_path: &Path, legacy_dotenv: Option<&Path>) -> Result<Self, ConfigError> {
-        let Some(legacy) = legacy_dotenv else {
-            return Ok(Self::default());
-        };
-        if !legacy.exists() {
-            return Ok(Self::default());
-        }
-        let env = EnvFile::load(legacy).map_err(|source| ConfigError::LegacyDotenv {
-            path: legacy.to_path_buf(),
-            source,
-        })?;
-        let cfg = Self::from_legacy_dotenv(&env);
-        cfg.save(config_path)?;
-        tracing::info!(
-            legacy = %legacy.display(),
-            config = %config_path.display(),
-            "migrated .taskfast-agent.env into JSON config — legacy file left in place",
-        );
-        Ok(cfg)
-    }
-
-    /// Map an in-memory legacy dotenv into a `Config`. Exposed for the
-    /// `config` subcommand's `--migrate` flag and for tests.
-    pub fn from_legacy_dotenv(env: &EnvFile) -> Self {
-        let keystore_path = env
-            .get("TEMPO_KEY_SOURCE")
-            .and_then(|s| s.strip_prefix("file:").map(PathBuf::from));
-        Self {
-            schema_version: CURRENT_SCHEMA_VERSION,
-            environment: None,
-            api_base: env.get("TASKFAST_API").map(str::to_string),
-            api_key: env.get("TASKFAST_API_KEY").map(str::to_string),
-            network: env.get("TEMPO_NETWORK").map(str::to_string),
-            wallet_address: env.get("TEMPO_WALLET_ADDRESS").map(str::to_string),
-            keystore_path,
-            agent_id: None,
-            webhook_url: None,
-            webhook_secret_path: None,
-            confirm_above_budget: None,
-            log_format: None,
-            approval_horizon: None,
-            receipt_timeout: None,
-        }
-    }
-}
-
-/// Resolve the legacy dotenv path for a given config path. For the
-/// default `./.taskfast/config.json` this returns `./.taskfast-agent.env`
-/// — the project-root sibling of the `.taskfast/` directory. Returns
-/// `None` when `path` has no grandparent (flat paths like
-/// `"config.json"` don't get a migration target).
-fn legacy_dotenv_for(path: &Path) -> Option<PathBuf> {
-    let parent = path.parent()?;
-    let grandparent = parent.parent()?;
-    Some(grandparent.join(dotenv::DEFAULT_ENV_FILENAME))
 }
 
 // Serde support for `Environment` — declared here (not in lib.rs) so the
@@ -502,115 +416,5 @@ mod tests {
         let err = Config::load(&path).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("bad.json"), "error mentions path: {msg}");
-    }
-
-    #[test]
-    fn legacy_dotenv_for_default_layout() {
-        let p = PathBuf::from(".taskfast/config.json");
-        assert_eq!(
-            legacy_dotenv_for(&p),
-            Some(PathBuf::from(".taskfast-agent.env")),
-        );
-    }
-
-    #[test]
-    fn legacy_dotenv_for_absolute_layout() {
-        let p = PathBuf::from("/proj/.taskfast/config.json");
-        assert_eq!(
-            legacy_dotenv_for(&p),
-            Some(PathBuf::from("/proj/.taskfast-agent.env")),
-        );
-    }
-
-    #[test]
-    fn legacy_dotenv_for_flat_path_is_none() {
-        // "config.json" has no parent.parent() — nothing to migrate from.
-        let p = PathBuf::from("config.json");
-        assert_eq!(legacy_dotenv_for(&p), None);
-    }
-
-    #[test]
-    fn from_legacy_dotenv_maps_every_known_key() {
-        let mut env = EnvFile::new();
-        env.set("TASKFAST_API", "http://x");
-        env.set("TASKFAST_API_KEY", "am_live_abc");
-        env.set("TEMPO_NETWORK", "testnet");
-        env.set("TEMPO_WALLET_ADDRESS", "0xdead");
-        env.set("TEMPO_KEY_SOURCE", "file:/tmp/keys.json");
-        let cfg = Config::from_legacy_dotenv(&env);
-        assert_eq!(cfg.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(cfg.api_base.as_deref(), Some("http://x"));
-        assert_eq!(cfg.api_key.as_deref(), Some("am_live_abc"));
-        assert_eq!(cfg.network.as_deref(), Some("testnet"));
-        assert_eq!(cfg.wallet_address.as_deref(), Some("0xdead"));
-        assert_eq!(cfg.keystore_path, Some(PathBuf::from("/tmp/keys.json")));
-        assert!(cfg.environment.is_none());
-        assert!(cfg.agent_id.is_none());
-    }
-
-    #[test]
-    fn from_legacy_dotenv_without_file_prefix_drops_keystore_path() {
-        // Defensive: old init.sh versions could have written a bare path.
-        // We only migrate values we understand.
-        let mut env = EnvFile::new();
-        env.set("TEMPO_KEY_SOURCE", "/tmp/keys.json");
-        let cfg = Config::from_legacy_dotenv(&env);
-        assert!(cfg.keystore_path.is_none());
-    }
-
-    #[test]
-    fn load_or_migrate_reads_dotenv_when_json_missing() {
-        let tmp = TempDir::new().unwrap();
-        let dotenv_path = tmp.path().join(".taskfast-agent.env");
-        let config_path = tmp.path().join(".taskfast").join("config.json");
-
-        let mut env = EnvFile::new();
-        env.set("TASKFAST_API", "http://migrated");
-        env.set("TASKFAST_API_KEY", "am_live_migrated");
-        env.set("TEMPO_NETWORK", "testnet");
-        env.save(&dotenv_path).unwrap();
-
-        let cfg = Config::load_or_migrate(&config_path).expect("migration runs");
-        assert_eq!(cfg.api_base.as_deref(), Some("http://migrated"));
-        assert_eq!(cfg.api_key.as_deref(), Some("am_live_migrated"));
-        assert_eq!(cfg.network.as_deref(), Some("testnet"));
-
-        // Side effect: JSON now exists on disk so the next call skips
-        // the migration path.
-        assert!(config_path.exists(), "migration writes JSON");
-        assert!(dotenv_path.exists(), "legacy dotenv is left untouched");
-    }
-
-    #[test]
-    fn load_or_migrate_ignores_dotenv_when_json_exists() {
-        let tmp = TempDir::new().unwrap();
-        let dotenv_path = tmp.path().join(".taskfast-agent.env");
-        let config_path = tmp.path().join(".taskfast").join("config.json");
-
-        // Seed both — JSON should win.
-        let mut env = EnvFile::new();
-        env.set("TASKFAST_API", "http://dotenv-wins");
-        env.save(&dotenv_path).unwrap();
-
-        let json_cfg = Config {
-            api_base: Some("http://json-wins".into()),
-            ..Config::default()
-        };
-        json_cfg.save(&config_path).unwrap();
-
-        let cfg = Config::load_or_migrate(&config_path).expect("json wins");
-        assert_eq!(cfg.api_base.as_deref(), Some("http://json-wins"));
-    }
-
-    #[test]
-    fn load_or_migrate_returns_default_when_nothing_exists() {
-        let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join(".taskfast").join("config.json");
-        let cfg = Config::load_or_migrate(&config_path).expect("no files, no error");
-        assert_eq!(cfg, Config::default());
-        assert!(
-            !config_path.exists(),
-            "nothing to migrate, nothing to write"
-        );
     }
 }

@@ -11,7 +11,6 @@
 
 pub mod cmd;
 pub mod config;
-pub mod dotenv;
 pub mod envelope;
 pub mod exit;
 
@@ -43,5 +42,93 @@ impl Environment {
             Self::Staging => "https://staging.api.taskfast.app",
             Self::Local => "http://localhost:4000",
         }
+    }
+}
+
+/// Derive the human-facing account-tokens URL from an API base URL.
+///
+/// Strips a leading `api.` from the host (so `api.taskfast.app` →
+/// `taskfast.app`) and appends `/account/tokens`. Hosts without the
+/// `api.` prefix (localhost, bare domains, IPs) are passed through.
+/// Scheme and port are preserved.
+pub fn accounts_url(api_base: &str) -> String {
+    match url::Url::parse(api_base) {
+        Ok(mut u) => {
+            let rewritten = u.host_str().and_then(strip_api_label);
+            if let Some(h) = rewritten {
+                let _ = u.set_host(Some(&h));
+            }
+            u.set_path("/account/tokens");
+            u.set_query(None);
+            u.set_fragment(None);
+            u.to_string()
+        }
+        // Fallback for a malformed base: best-effort string concat.
+        Err(_) => format!("{}/account/tokens", api_base.trim_end_matches('/')),
+    }
+}
+
+/// Drop the `api` label from a host so the URL points at the human-facing
+/// dashboard. `api.taskfast.app` → `taskfast.app`;
+/// `staging.api.taskfast.app` → `staging.taskfast.app`. Returns `None`
+/// when the host has no `api` label to strip.
+fn strip_api_label(host: &str) -> Option<String> {
+    if let Some(rest) = host.strip_prefix("api.") {
+        return Some(rest.to_owned());
+    }
+    // Middle label: collapse `.api.` into a single `.`.
+    if host.contains(".api.") {
+        return Some(host.replacen(".api.", ".", 1));
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::accounts_url;
+
+    #[test]
+    fn accounts_url_strips_api_prefix_prod() {
+        assert_eq!(
+            accounts_url("https://api.taskfast.app"),
+            "https://taskfast.app/account/tokens"
+        );
+    }
+
+    #[test]
+    fn accounts_url_strips_api_prefix_staging() {
+        assert_eq!(
+            accounts_url("https://staging.api.taskfast.app"),
+            "https://staging.taskfast.app/account/tokens"
+        );
+    }
+
+    #[test]
+    fn accounts_url_passthrough_localhost_with_port() {
+        assert_eq!(
+            accounts_url("http://localhost:4000"),
+            "http://localhost:4000/account/tokens"
+        );
+    }
+
+    #[test]
+    fn accounts_url_passthrough_bare_domain() {
+        assert_eq!(
+            accounts_url("https://taskfast.app"),
+            "https://taskfast.app/account/tokens"
+        );
+    }
+
+    #[test]
+    fn accounts_url_drops_existing_path_and_query() {
+        assert_eq!(
+            accounts_url("https://api.taskfast.app/v1?x=1"),
+            "https://taskfast.app/account/tokens"
+        );
+    }
+
+    #[test]
+    fn accounts_url_malformed_falls_back_to_concat() {
+        assert_eq!(accounts_url("not a url"), "not a url/account/tokens");
     }
 }

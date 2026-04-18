@@ -33,6 +33,7 @@ tokio = { workspace = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
+dialoguer.workspace = true
 taskfast-client = { workspace = true }
 taskfast-chains = { workspace = true, features = ["tempo"] }
 taskfast-agent = { workspace = true }

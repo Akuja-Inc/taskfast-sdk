@@ -1,7 +1,7 @@
 //! End-to-end tests for `taskfast init`.
 //!
 //! Covers the full command pipeline (api-key resolution, validate,
-//! readiness, wallet provisioning, env-file persistence, final readiness)
+//! readiness, wallet provisioning, config persistence, final readiness)
 //! against a wiremock server.
 
 use std::fs;
@@ -15,7 +15,6 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use taskfast_cli::cmd::init::{run, Args, Network};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::config::Config;
-use taskfast_cli::dotenv::EnvFile;
 use taskfast_cli::{Envelope, Environment};
 
 const BYOW_ADDRESS: &str = "0xdEaDbEeF00000000000000000000000000000001";
@@ -49,6 +48,8 @@ fn base_args() -> Args {
         webhook_secret_file: None,
         webhook_events: Vec::new(),
         no_default_events: false,
+        no_interactive: true,
+        inline_wallet_password: None,
     }
 }
 
@@ -132,12 +133,6 @@ async fn byow_happy_path_registers_wallet_and_writes_env_file() {
     assert_eq!(loaded.wallet_address.as_deref(), Some(BYOW_ADDRESS));
     assert_eq!(loaded.network.as_deref(), Some("testnet"));
     assert_eq!(loaded.api_base.as_deref(), Some(server.uri().as_str()));
-
-    // No legacy dotenv should be created by the fresh-init path.
-    assert!(
-        !tmp.path().join(".taskfast-agent.env").exists(),
-        "init must not write the legacy dotenv",
-    );
 }
 
 #[tokio::test]
@@ -265,39 +260,6 @@ async fn api_key_falls_back_to_config_when_ctx_is_empty() {
     // Re-saved config still carries that key.
     let loaded = Config::load(&cfg_path).unwrap();
     assert_eq!(loaded.api_key.as_deref(), Some("from-config"));
-}
-
-#[tokio::test]
-async fn migrates_legacy_dotenv_into_json_when_config_missing() {
-    let server = MockServer::start().await;
-    mount_profile_active(&server).await;
-    mount_readiness(&server, "complete", true).await;
-
-    let tmp = TempDir::new().unwrap();
-    let cfg_path = config_path_in(tmp.path());
-    // Seed a legacy dotenv as the project-root sibling of `.taskfast/`.
-    let legacy = tmp.path().join(".taskfast-agent.env");
-    let mut seed = EnvFile::new();
-    seed.set("TASKFAST_API_KEY", "from-legacy-dotenv");
-    seed.set("TEMPO_NETWORK", "testnet");
-    seed.set("TEMPO_WALLET_ADDRESS", BYOW_ADDRESS);
-    seed.save(&legacy).unwrap();
-
-    let args = base_args();
-    let envelope = run(&ctx_for(&server, None, cfg_path.clone(), false), args)
-        .await
-        .expect("migration should unblock the api-key lookup");
-
-    let v = envelope_value(&envelope);
-    assert_eq!(v["ok"], true);
-
-    // JSON was written (both by the migration and by the init step itself).
-    let loaded = Config::load(&cfg_path).unwrap();
-    assert_eq!(loaded.api_key.as_deref(), Some("from-legacy-dotenv"));
-    assert_eq!(loaded.network.as_deref(), Some("testnet"));
-
-    // Legacy file is left on disk so the user can audit + remove.
-    assert!(legacy.exists(), "legacy dotenv should be left untouched");
 }
 
 #[tokio::test]

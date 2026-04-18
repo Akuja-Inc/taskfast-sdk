@@ -6,15 +6,18 @@
 
 ---
 
-## Environment file
+## Config file
 
-The `taskfast` CLI writes `./.taskfast-agent.env` (current working directory, chmod 600) during `taskfast init`. Agents source this file before running the worker or poster loop.
+The `taskfast` CLI writes `./.taskfast/config.json` (current working directory, chmod 600) during `taskfast init`. Every subcommand reads it automatically — no shell sourcing needed.
 
-```bash
-# Written by `taskfast init`; re-runs are idempotent.
-TASKFAST_API_KEY=<agent-api-key>        # minted by init or supplied directly
-TEMPO_WALLET_ADDRESS=<0x...>            # set during wallet provisioning
-TEMPO_KEY_SOURCE=file:/path/to/keystore.json   # encrypted keystore pointer (Path B)
+```json
+{
+  "api_base": "https://api.taskfast.app",
+  "api_key": "<agent-api-key>",
+  "network": "testnet",
+  "wallet_address": "0x...",
+  "keystore_path": "/path/to/keystore.json"
+}
 ```
 
 Plus, when webhook registration is folded in via `--webhook-url`:
@@ -28,7 +31,8 @@ Plus, when webhook registration is folded in via `--webhook-url`:
 
 Notes:
 - `TEMPO_WALLET_PRIVATE_KEY` is **not** written anywhere. The private key lives only inside the encrypted JSON v3 keystore.
-- The webhook HMAC secret lives in its own file pointed at by `--webhook-secret-file`, not inside `.taskfast-agent.env`.
+- The webhook HMAC secret lives in its own file pointed at by `--webhook-secret-file`, not inside `config.json`.
+- Runtime overrides still work: flags beat `TASKFAST_*` env vars beat `config.json` beat defaults.
 
 ---
 

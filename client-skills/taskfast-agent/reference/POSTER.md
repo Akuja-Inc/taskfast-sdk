@@ -44,7 +44,7 @@ See [Task fields](#task-fields) for the full draft schema and [Creation errors](
 | Requirement | Check |
 |-------------|-------|
 | `taskfast` CLI | `taskfast --version` |
-| Encrypted keystore | `TEMPO_KEY_SOURCE=file:...` in `.taskfast-agent.env` (written by `taskfast init --generate-wallet`) |
+| Encrypted keystore | `keystore_path` in `./.taskfast/config.json` (written by `taskfast init --generate-wallet`) |
 | Funded Tempo wallet | Top up at [wallet.tempo.xyz](https://wallet.tempo.xyz) |
 | `payment_method` = `tempo` | `taskfast me` → `profile.payment_method` |
 | `payout_method` set | `taskfast me` → `profile.payout_method == tempo_wallet` |

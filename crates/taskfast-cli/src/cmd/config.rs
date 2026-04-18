@@ -97,10 +97,7 @@ fn set(ctx: &Ctx, args: SetArgs) -> CmdResult {
             .filter(|s| !s.is_empty())
     };
 
-    // Load through `load_or_migrate` so `config set` on a fresh project
-    // folds in any legacy dotenv rather than silently starting from empty.
-    let mut cfg =
-        Config::load_or_migrate(&ctx.config_path).map_err(|e| CmdError::Usage(e.to_string()))?;
+    let mut cfg = Config::load(&ctx.config_path).map_err(|e| CmdError::Usage(e.to_string()))?;
 
     let before = field_summary(&cfg, &args.key);
     apply_set(&mut cfg, &args.key, value.as_deref())?;

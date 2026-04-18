@@ -167,11 +167,30 @@ pub struct Args {
     /// zero subscriptions (a deliberate URL-only push endpoint).
     #[arg(long)]
     pub no_default_events: bool,
+
+    /// Disable all TTY prompts even when stdin is a terminal. Use in
+    /// scripts or pipes where interactive fallback would stall. Env:
+    /// `TASKFAST_NO_INTERACTIVE=1`.
+    #[arg(long, env = "TASKFAST_NO_INTERACTIVE")]
+    pub no_interactive: bool,
+
+    /// Inline keystore password populated by the interactive wallet-
+    /// generate prompt. Never exposed as a CLI arg (would leak via
+    /// process args). Takes precedence over `--wallet-password-file`
+    /// when set, so the prompted value round-trips into the normal
+    /// password-resolution path.
+    #[arg(skip)]
+    pub inline_wallet_password: Option<String>,
 }
 
+/// Tempo network tag persisted in the config file. Selects between the
+/// production L1 and the testnet faucet path; does not change the TaskFast
+/// API base URL (that's `--api-base`).
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum Network {
+    /// Production Tempo network. Wallets must be funded manually.
     Mainnet,
+    /// Testnet. Eligible for the public faucet via `--fund`.
     Testnet,
 }
 
@@ -185,23 +204,46 @@ impl Network {
 }
 
 pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
+    let interactive = !args.no_interactive && crate::cmd::init_tui::is_interactive();
+    run_with_prompter(
+        ctx,
+        args,
+        &crate::cmd::init_tui::DialoguerPrompter,
+        interactive,
+    )
+    .await
+}
+
+/// Same as [`run`] but with an injectable [`Prompter`] and an explicit
+/// `interactive` gate so tests can drive the TUI branches under
+/// `cargo test` (where neither stdin nor stdout is a TTY). Production
+/// callers should use [`run`].
+pub async fn run_with_prompter<P: crate::cmd::init_tui::Prompter>(
+    ctx: &Ctx,
+    mut args: Args,
+    prompter: &P,
+    interactive: bool,
+) -> CmdResult {
     let cfg_path = ctx.config_path.clone();
 
-    // 1. Load any existing config (with one-shot migration from the
-    //    legacy `.taskfast-agent.env` when JSON is absent) so re-running
-    //    init is idempotent. A config-supplied api_key is layered under
-    //    the CLI/env sources Ctx already resolved (flag > env var >
-    //    config).
-    let mut cfg = Config::load_or_migrate(&cfg_path).map_err(|e| CmdError::Usage(e.to_string()))?;
+    // 1. Load any existing config so re-running init is idempotent. A
+    //    config-supplied api_key is layered under the CLI/env sources
+    //    Ctx already resolved (flag > env var > config).
+    let mut cfg = Config::load(&cfg_path)?;
 
     // 1a. Resolve the agent API key. If none is available but the caller
     //     supplied a user PAT, mint a fresh agent headlessly and use the
     //     returned key. Under --dry-run we short-circuit before the POST
     //     and return early — the rest of the flow depends on a real key.
+    //
+    //     Interactive fallback: when no key and no --human-api-key, and
+    //     we're attached to a TTY, prompt the human for their PAT and
+    //     greet them via /users/me before minting.
     let (api_key, agent_outcome) = match resolve_api_key(ctx, &cfg) {
         Ok(k) => (k, AgentOutcome::PreExisting),
-        Err(CmdError::MissingApiKey) if args.human_api_key.is_some() => {
-            let minted = mint_agent(ctx, &args).await?;
+        Err(CmdError::MissingApiKey) => {
+            let pat = resolve_pat(ctx, &args, interactive, prompter).await?;
+            let minted = mint_agent(ctx, &args, &pat).await?;
             match minted {
                 MintedAgent::DryRun { ref intent } => {
                     return Ok(Envelope::success(
@@ -218,19 +260,24 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
         Err(e) => return Err(e),
     };
 
+    // 1b. Interactive wallet-mode prompt. Only fires when this run just
+    //     minted a fresh agent AND the human gave us zero wallet signal
+    //     on the command line. Re-init against an existing agent key is
+    //     treated as silent (preserves `init_idempotent_on_reinit`) so
+    //     humans re-running `taskfast init` to refresh state don't get
+    //     re-prompted about wallet setup they already completed.
+    if interactive
+        && matches!(agent_outcome, AgentOutcome::Minted(_))
+        && args.wallet_address.is_none()
+        && !args.generate_wallet
+        && !args.skip_wallet
+    {
+        apply_wallet_mode_prompt(&mut args, prompter)?;
+    }
+
     let effective_ctx = Ctx {
         api_key: Some(api_key.clone()),
-        environment: ctx.environment,
-        api_base: ctx.api_base.clone(),
-        config_path: ctx.config_path.clone(),
-        wallet_address: ctx.wallet_address.clone(),
-        keystore_path: ctx.keystore_path.clone(),
-        confirm_above_budget: ctx.confirm_above_budget.clone(),
-        log_format: ctx.log_format.clone(),
-        approval_horizon: ctx.approval_horizon,
-        receipt_timeout: ctx.receipt_timeout,
-        dry_run: ctx.dry_run,
-        quiet: ctx.quiet,
+        ..ctx.clone()
     };
     let client = effective_ctx.client()?;
 
@@ -290,8 +337,7 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
     let config_written = if ctx.dry_run {
         false
     } else {
-        cfg.save(&cfg_path)
-            .map_err(|e| CmdError::Usage(e.to_string()))?;
+        cfg.save(&cfg_path)?;
         true
     };
 
@@ -360,12 +406,71 @@ struct MintIntent {
     capabilities: Vec<String>,
 }
 
-async fn mint_agent(ctx: &Ctx, args: &Args) -> Result<MintedAgent, CmdError> {
-    let pat = args
-        .human_api_key
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| CmdError::Usage("--human-api-key is empty".into()))?;
+/// Resolve the PAT used to mint a fresh agent. Priority: `--human-api-key`
+/// (flag / env) → interactive prompt (when TTY-attached). Absent both,
+/// propagate the original [`CmdError::MissingApiKey`] so non-interactive
+/// callers see the same message they did before the TUI landed.
+async fn resolve_pat<P: crate::cmd::init_tui::Prompter>(
+    ctx: &Ctx,
+    args: &Args,
+    interactive: bool,
+    prompter: &P,
+) -> Result<String, CmdError> {
+    if let Some(p) = args.human_api_key.as_deref().filter(|s| !s.is_empty()) {
+        return Ok(p.to_string());
+    }
+    if !interactive {
+        return Err(CmdError::MissingApiKey);
+    }
+    let accounts_url = crate::accounts_url(ctx.base_url());
+    let pat = prompter
+        .pat(&accounts_url)
+        .map_err(|e| CmdError::Usage(format!("PAT prompt failed: {e}")))?;
+    // Greet via /users/me when available. 404 (endpoint not yet deployed)
+    // falls back to a neutral confirmation — we never block the flow on
+    // the greeting.
+    let pat_client = TaskFastClient::from_api_key(ctx.base_url(), &pat).map_err(CmdError::from)?;
+    let profile = pat_client.get_user_profile().await.ok().flatten();
+    eprintln!("{}", crate::cmd::init_tui::greeting(profile.as_ref()));
+    Ok(pat)
+}
+
+/// Drive the interactive wallet-mode prompt and fold the result back
+/// into `args` so the existing `provision_wallet` branches see the same
+/// state they would have after flag parsing.
+fn apply_wallet_mode_prompt<P: crate::cmd::init_tui::Prompter>(
+    args: &mut Args,
+    prompter: &P,
+) -> Result<(), CmdError> {
+    use crate::cmd::init_tui::WalletMode;
+    let mode = prompter
+        .wallet_mode()
+        .map_err(|e| CmdError::Usage(format!("wallet-mode prompt failed: {e}")))?;
+    match mode {
+        WalletMode::Byow => {
+            let addr = prompter
+                .wallet_address()
+                .map_err(|e| CmdError::Usage(format!("wallet-address prompt failed: {e}")))?;
+            args.wallet_address = Some(addr.trim().to_string());
+        }
+        WalletMode::Generate => {
+            args.generate_wallet = true;
+            let pw = prompter
+                .wallet_password()
+                .map_err(|e| CmdError::Usage(format!("password prompt failed: {e}")))?;
+            args.inline_wallet_password = Some(pw);
+        }
+        WalletMode::Skip => {
+            args.skip_wallet = true;
+        }
+    }
+    Ok(())
+}
+
+async fn mint_agent(ctx: &Ctx, args: &Args, pat: &str) -> Result<MintedAgent, CmdError> {
+    if pat.is_empty() {
+        return Err(CmdError::Usage("PAT is empty".into()));
+    }
 
     let capabilities = if args.agent_capabilities.is_empty() {
         vec!["general".to_string()]
@@ -557,17 +662,16 @@ async fn provision_wallet(
         ));
     }
 
-    let password = resolve_wallet_password(args)?;
     let signer = wallet::generate_signer();
     let address = format!("0x{}", hex::encode(signer.address().as_slice()));
 
     if dry_run {
-        // Drop signer without persisting; return the address so the caller
-        // can confirm what *would* have been generated.
-        let _ = password; // silence unused-var when dry-run short-circuits
+        // Return the address without resolving the password or persisting;
+        // caller just needs to see what *would* have been generated.
         return Ok(WalletOutcome::DryRunGenerated { address });
     }
 
+    let password = resolve_wallet_password(args)?;
     let keystore_path = persist_keystore(&signer, args, &password)?;
     wallet::register_wallet(client, &address)
         .await
@@ -579,6 +683,13 @@ async fn provision_wallet(
 }
 
 fn resolve_wallet_password(args: &Args) -> Result<String, CmdError> {
+    // Interactive prompt populates this; takes precedence so the prompted
+    // value isn't second-guessed by a stale env var from a prior shell.
+    if let Some(pw) = args.inline_wallet_password.as_deref() {
+        if !pw.is_empty() {
+            return Ok(pw.to_string());
+        }
+    }
     if let Ok(pw) = std::env::var("TASKFAST_WALLET_PASSWORD") {
         if !pw.is_empty() {
             return Ok(pw);
@@ -907,6 +1018,8 @@ mod tests {
             webhook_secret_file: None,
             webhook_events: Vec::new(),
             no_default_events: false,
+            no_interactive: true,
+            inline_wallet_password: None,
         }
     }
 
