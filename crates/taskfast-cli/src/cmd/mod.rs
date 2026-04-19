@@ -168,6 +168,34 @@ impl Ctx {
         })
     }
 
+    /// F15: gather non-fatal security warnings derived from the effective
+    /// runtime state. Computed at emit time (not at construction) so
+    /// subcommand-induced signals can be folded in here if needed later.
+    /// Always safe to call — never allocates for a healthy run.
+    pub fn security_warnings(&self) -> Vec<crate::envelope::SecurityWarning> {
+        use crate::envelope::SecurityWarning;
+        let mut out = Vec::new();
+        if self.allow_custom_endpoints {
+            let detail = self.api_base.as_deref().unwrap_or("(env default)");
+            out.push(SecurityWarning {
+                code: "custom_endpoints_allowed",
+                message: format!(
+                    "--allow-custom-endpoints is in effect; api_base={detail}. \
+                     Traffic will go to a non-well-known host."
+                ),
+            });
+        }
+        if std::env::var("TASKFAST_WALLET_PASSWORD").is_ok_and(|v| !v.is_empty()) {
+            out.push(SecurityWarning {
+                code: "password_env_var",
+                message: "TASKFAST_WALLET_PASSWORD is readable via /proc/<pid>/environ; \
+                         prefer --wallet-password-file."
+                    .into(),
+            });
+        }
+        out
+    }
+
     /// Resolved API base URL: override if set, else env default.
     pub fn base_url(&self) -> &str {
         match self.api_base.as_deref() {

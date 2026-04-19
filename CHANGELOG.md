@@ -55,3 +55,42 @@ that is the authoritative changelog.
   scrubbed on scope exit. The `alloy-signer-local` internal copy is
   outside our control — this shrinks the window + scope inside our
   own address space.
+- **F8 response-body size cap.** Hand-rolled client read paths
+  (`get_user_profile`, `upload_artifact`, `classify_response`) stream
+  via `chunk()` with an explicit ceiling — 16 MiB for success bodies,
+  64 KiB for error envelopes. A compromised or buggy server can no
+  longer memory-exhaust the CLI with a gigabyte response.
+- **F9 wallet sign+broadcast file-lock.** `taskfast post` acquires an
+  exclusive OS-level lock on `<keystore-dir>/.taskfast-wallet.lock`
+  across `eth_getTransactionCount` → `eth_sendRawTransaction`.
+  Concurrent invocations against the same keystore on one host can no
+  longer collide on nonce; distinct wallets still proceed in parallel.
+- **F10 Docker non-root.** The published image now creates a
+  `taskfast` user (uid 1000) and `USER taskfast:taskfast`s before the
+  entrypoint. Default bind-mount writes land as uid 1000, and a
+  compromised binary can no longer chmod its own copy on tight host
+  ACLs.
+- **F11 cosign keyless-signed releases.** Release workflow aggregates
+  per-archive `.sha256` files into a single `SHA256SUMS`, signs it via
+  Sigstore Fulcio using the GitHub Actions OIDC workflow identity, and
+  uploads `SHA256SUMS.sig` + `SHA256SUMS.pem` to the GitHub Release.
+  Verifiers: see `SECURITY.md` Operator Guidance for the
+  `cosign verify-blob` incantation.
+- **F12 wiki-sync dedicated deploy key.** Wiki mirror workflow
+  authenticates via a dedicated SSH deploy key (`WIKI_DEPLOY_KEY`
+  secret) instead of the broad `GITHUB_TOKEN`, and `permissions:` is
+  narrowed to `contents: read`. Operator one-time setup is documented
+  in the workflow header.
+- **F13 reject multi-line password files.** `resolve_password` now
+  refuses a password file containing an interior `\n` or `\r` (a
+  trailing newline is still fine). Prevents a file with a commented
+  header or two concatenated passwords from being silently accepted as
+  the first line.
+- **F15 security_warnings[] envelope field.** Every JSON envelope now
+  carries a `security_warnings` array (empty on healthy runs). Current
+  signals: `custom_endpoints_allowed` when `--allow-custom-endpoints`
+  is active; `password_env_var` when `TASKFAST_WALLET_PASSWORD` is set.
+  Orchestrators can `.jq '.security_warnings | length > 0'` to gate.
+- **Operator Guidance** added to `SECURITY.md` — install verification,
+  secrets hygiene, wallet safety, network, webhook, supply chain, and
+  incident-response playbooks.

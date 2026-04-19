@@ -82,6 +82,16 @@ pub fn resolve_password(password_file: Option<&Path>) -> Result<Zeroizing<String
             path.display()
         )));
     }
+    // F13: a trailing newline is fine (editors add one), but a newline
+    // *inside* the trimmed body almost always means the operator pasted
+    // extra content (two passwords, a commented-out line, a stray label).
+    // Refuse rather than silently taking the first line as the password.
+    if trimmed.contains('\n') || trimmed.contains('\r') {
+        return Err(CmdError::Usage(format!(
+            "wallet password file {} must contain a single line (found an interior newline)",
+            path.display()
+        )));
+    }
     Ok(Zeroizing::new(trimmed.to_string()))
 }
 
@@ -134,6 +144,31 @@ mod tests {
         let f = write_temp("secret\r\n");
         let pw = resolve_password(Some(f.path())).expect("ok");
         assert_eq!(pw.as_str(), "secret");
+    }
+
+    #[test]
+    fn password_rejects_interior_newline() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("TASKFAST_WALLET_PASSWORD");
+        let f = write_temp("first-line\nsecond-line\n");
+        let err = resolve_password(Some(f.path())).expect_err("multi-line must fail");
+        match err {
+            CmdError::Usage(m) => assert!(
+                m.contains("single line"),
+                "message must name the constraint: {m}"
+            ),
+            other => panic!("expected Usage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn password_rejects_interior_carriage_return() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("TASKFAST_WALLET_PASSWORD");
+        // CRLF in the middle (Windows-edited file with a stray prefix line).
+        let f = write_temp("annotation\r\nsecret\n");
+        let err = resolve_password(Some(f.path())).expect_err("must fail");
+        assert!(matches!(err, CmdError::Usage(_)), "got {err:?}");
     }
 
     #[test]

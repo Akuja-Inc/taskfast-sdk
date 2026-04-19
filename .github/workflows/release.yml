@@ -14,8 +14,13 @@
 # title/body based on your changelogs.
 
 name: Release
+# `contents: write` required to publish the GitHub Release and upload assets.
+# `id-token: write` required for F11 cosign keyless signing: the OIDC token
+# issued by GitHub Actions is what Sigstore Fulcio uses to bind the
+# signature to this workflow identity.
 permissions:
-  "contents": "write"
+  contents: write
+  id-token: write
 
 # This task will run whenever you push a git tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
@@ -285,6 +290,52 @@ jobs:
           echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+
+      # F11: aggregate the per-archive `.sha256` files dist emits into a
+      # single SHA256SUMS, then keyless-sign it via Sigstore Fulcio using
+      # the workflow OIDC identity. No org-level key required. Verifiers:
+      #   cosign verify-blob \
+      #     --certificate-identity-regexp '^https://github.com/Akuja-Inc/taskfast-cli/' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      #     --signature  SHA256SUMS.sig \
+      #     --certificate SHA256SUMS.pem \
+      #     SHA256SUMS
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d7d6e4ea8f1bb61735f7b1b65cf0b4dfa2eed0b5  # v3.7.0
+        with:
+          cosign-release: v2.4.1
+
+      - name: Sign SHA256SUMS (keyless, GHA OIDC)
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          # Aggregate per-archive .sha256 side files into a single SHA256SUMS.
+          # Skip if dist didn't emit them (defensive: older dist versions).
+          shopt -s nullglob
+          sums=(*.sha256)
+          if [[ ${#sums[@]} -eq 0 ]]; then
+            echo "::warning::no .sha256 files found; computing from scratch"
+            : > SHA256SUMS
+            for f in *.tar.xz *.tar.gz *.zip; do
+              [[ -e "$f" ]] || continue
+              sha256sum "$f" >> SHA256SUMS
+            done
+          else
+            : > SHA256SUMS
+            for s in "${sums[@]}"; do
+              cat "$s" >> SHA256SUMS
+            done
+          fi
+          test -s SHA256SUMS || { echo "::error::SHA256SUMS is empty"; exit 1; }
+
+          cosign sign-blob --yes \
+            --output-signature SHA256SUMS.sig \
+            --output-certificate SHA256SUMS.pem \
+            SHA256SUMS
+
+          gh release upload "$TAG" SHA256SUMS SHA256SUMS.sig SHA256SUMS.pem --clobber
 
   publish-homebrew-formula:
     needs:

@@ -252,13 +252,15 @@ async fn main() -> std::process::ExitCode {
     match result {
         Ok(env) => {
             if !ctx.quiet {
-                env.emit();
+                env.with_warnings(ctx.security_warnings()).emit();
             }
             exit::ExitCode::Success.into()
         }
         Err(e) => {
             if !ctx.quiet {
-                Envelope::error(ctx.environment, ctx.dry_run, &e).emit();
+                Envelope::error(ctx.environment, ctx.dry_run, &e)
+                    .with_warnings(ctx.security_warnings())
+                    .emit();
             }
             e.exit_code().into()
         }

@@ -13,6 +13,7 @@ pub mod cmd;
 pub mod config;
 pub mod envelope;
 pub mod exit;
+pub mod wallet_lock;
 
 pub use config::Config;
 pub use envelope::{Envelope, ErrorPayload};

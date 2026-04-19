@@ -394,6 +394,20 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
         prep.token_address, chain_id, rpc_url
     );
 
+    // F9: serialize nonce-consuming sign+broadcast per wallet. `_guard`
+    // holds the exclusive file lock from here until function return,
+    // which scope-covers both eth_getTransactionCount (inside
+    // sign_and_broadcast_erc20_transfer) and eth_sendRawTransaction.
+    // Locked on the keystore path (stripping the optional `file:` prefix
+    // that `taskfast init` writes) so two processes sharing a keystore
+    // can't race, while distinct wallets proceed in parallel.
+    let _guard = if let Some(ref raw) = keystore_ref {
+        let path_str = raw.strip_prefix("file:").unwrap_or(raw);
+        Some(crate::wallet_lock::acquire(std::path::Path::new(path_str))?)
+    } else {
+        None
+    };
+
     let tx_hash =
         sign_and_broadcast_erc20_transfer(&rpc, &signer, token_address, Bytes::from(calldata))
             .await
