@@ -33,3 +33,25 @@ that is the authoritative changelog.
   token on anvil/hardhat locals). Shields against a compromised API
   redirecting the ERC-20 submission-fee transfer. An audit line is
   emitted to stderr on every sign.
+- **F3 atomic webhook-secret write.** `webhook register --secret-file`
+  now writes to a sibling `.tmp`, chmods it `0600`, then renames into
+  place — closing the brief `0644` window a concurrent reader on a
+  shared host could observe.
+- **F4 tight `.taskfast/` parent-dir perms.** `Config::save` now chmods
+  the parent directory to `0700` on unix so `.taskfast/` itself is no
+  longer world-listable after `taskfast init`.
+- **F5 no HTTP redirects.** The typed client pins
+  `reqwest::redirect::Policy::none()`. `X-API-Key` is a custom header
+  (not `Authorization`) and would otherwise be replayed verbatim on a
+  cross-host 3xx — the real API never 3xx's, so refusing all redirects
+  is safe and turns a malicious `Location` into an immediate failure.
+- **F6 error-variant-only retry logs.** `taskfast_agent::retry`
+  no longer logs the raw `Error` `Display` at `debug` level — only the
+  stable variant tag via `Error::kind()`. Prevents a server that echoes
+  request bodies into its error strings from paging an `X-API-Key`
+  value into every log sink.
+- **F7 zeroized wallet passwords.** `resolve_password` returns
+  `zeroize::Zeroizing<String>`; the CLI's plaintext-password buffer is
+  scrubbed on scope exit. The `alloy-signer-local` internal copy is
+  outside our control — this shrinks the window + scope inside our
+  own address space.

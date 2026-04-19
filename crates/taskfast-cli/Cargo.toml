@@ -42,6 +42,7 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
+zeroize = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 uuid.workspace = true

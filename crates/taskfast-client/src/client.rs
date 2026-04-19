@@ -58,10 +58,18 @@ impl TaskFastClient {
         let mut headers = HeaderMap::new();
         headers.insert("X-API-Key", value);
 
+        // F5: pin redirect policy to `none`. reqwest's default follows up
+        // to 10 redirects. `Authorization` is stripped cross-host by
+        // reqwest, but `X-API-Key` is a custom header so it would be
+        // replayed verbatim to whatever 3xx `Location` the server points
+        // at — exfiltrating the PAT on a single malicious redirect. The
+        // real API never 3xx's, so refusing all redirects is safe: a 302
+        // from `api.taskfast.app` is itself the anomaly we want to catch.
         let http = reqwest::ClientBuilder::new()
             .default_headers(headers)
             .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
             .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
         let resolved = format!("{}/api", base_url.trim_end_matches('/'));

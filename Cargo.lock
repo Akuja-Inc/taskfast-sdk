@@ -3801,6 +3801,7 @@ dependencies = [
  "url",
  "uuid 1.23.0",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]
