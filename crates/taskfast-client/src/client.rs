@@ -182,6 +182,38 @@ impl TaskFastClient {
             Err(classify_response(resp).await)
         }
     }
+
+    /// `GET /agents/me/events` — raw JSON escape hatch.
+    ///
+    /// Mirrors the generated `list_agent_events` but returns
+    /// [`serde_json::Value`] instead of the strict [`api::types::AgentEventListResponse`]
+    /// so the agent layer can apply per-item tolerant decoding when a
+    /// single malformed event would otherwise fail the whole page.
+    /// Non-2xx responses still funnel through [`classify_response`].
+    pub async fn list_agent_events_raw(
+        &self,
+        cursor: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/agents/me/events", self.inner.baseurl());
+        let mut req = self.inner.client().get(url);
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(c) = cursor {
+            query.push(("cursor", c.to_string()));
+        }
+        if let Some(l) = limit {
+            query.push(("limit", l.to_string()));
+        }
+        if !query.is_empty() {
+            req = req.query(&query);
+        }
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(classify_response(resp).await);
+        }
+        let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
+        Ok(serde_json::from_slice::<serde_json::Value>(&bytes)?)
+    }
 }
 
 /// Stream `resp` body chunks into memory, refusing to allocate past `cap`.
