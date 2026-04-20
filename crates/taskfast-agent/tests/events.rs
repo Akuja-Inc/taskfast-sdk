@@ -21,7 +21,7 @@ fn client(server: &MockServer) -> TaskFastClient {
 
 fn event(id: &str, name: &str) -> serde_json::Value {
     serde_json::json!({
-        "id": id,
+        "event_id": id,
         "event": name,
         "data": { "note": "x" },
         "occurred_at": "2026-03-23T12:00:00Z",

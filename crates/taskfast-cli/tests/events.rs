@@ -31,7 +31,7 @@ fn envelope_value(env: &Envelope) -> serde_json::Value {
 async fn poll_forwards_cursor_and_limit_and_returns_events() {
     let server = MockServer::start().await;
     let event = json!({
-        "id": "00000000-0000-0000-0000-0000000000e1",
+        "event_id": "00000000-0000-0000-0000-0000000000e1",
         "event": "task_disputed",
         "occurred_at": "2026-04-13T21:00:00Z",
         "task_id": "00000000-0000-0000-0000-0000000000aa",
