@@ -13,6 +13,7 @@ pub mod cmd;
 pub mod config;
 pub mod envelope;
 pub mod exit;
+pub mod wallet_lock;
 
 pub use config::Config;
 pub use envelope::{Envelope, ErrorPayload};
@@ -43,6 +44,30 @@ impl Environment {
             Self::Local => "http://localhost:4000",
         }
     }
+}
+
+/// Well-known TaskFast API base URLs that match an [`Environment`] default.
+///
+/// Used by the F2 endpoint-override guard: an `api_base` loaded from a
+/// CWD-local config file is rejected unless it either matches one of these
+/// or the caller passed `--allow-custom-endpoints` (or env
+/// `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`). A malicious cloned repo shipping
+/// a `.taskfast/config.json` pointing `api_base` at attacker infra would
+/// otherwise silently exfiltrate the PAT on the first request.
+pub const WELL_KNOWN_API_BASES: &[&str] = &[
+    "https://api.taskfast.app",
+    "https://staging.api.taskfast.app",
+    "http://localhost:4000",
+];
+
+/// True when `url` exactly matches a known-good default from
+/// [`WELL_KNOWN_API_BASES`]. Trailing `/` is tolerated so a config-file
+/// value `https://api.taskfast.app/` isn't flagged as custom.
+pub fn is_well_known_api_base(url: &str) -> bool {
+    let trimmed = url.trim_end_matches('/');
+    WELL_KNOWN_API_BASES
+        .iter()
+        .any(|w| w.trim_end_matches('/') == trimmed)
 }
 
 /// Derive the human-facing account-tokens URL from an API base URL.
@@ -85,7 +110,44 @@ fn strip_api_label(host: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::accounts_url;
+    use super::{accounts_url, is_well_known_api_base, Environment, WELL_KNOWN_API_BASES};
+
+    #[test]
+    fn well_known_api_bases_cover_every_environment_default() {
+        // Guard against drift: if someone adds a new Environment variant and
+        // forgets to register its default URL, the F2 guard would reject the
+        // CLI's own baked-in default.
+        for env in [Environment::Prod, Environment::Staging, Environment::Local] {
+            let url = env.default_base_url();
+            assert!(
+                is_well_known_api_base(url),
+                "default URL for {env:?} ({url}) must be in WELL_KNOWN_API_BASES"
+            );
+        }
+    }
+
+    #[test]
+    fn is_well_known_api_base_accepts_exact_defaults() {
+        for url in WELL_KNOWN_API_BASES {
+            assert!(is_well_known_api_base(url), "expected well-known: {url}");
+        }
+    }
+
+    #[test]
+    fn is_well_known_api_base_tolerates_trailing_slash() {
+        assert!(is_well_known_api_base("https://api.taskfast.app/"));
+        assert!(is_well_known_api_base("http://localhost:4000/"));
+    }
+
+    #[test]
+    fn is_well_known_api_base_rejects_attacker_hosts() {
+        assert!(!is_well_known_api_base("https://evil.example"));
+        assert!(!is_well_known_api_base(
+            "https://api.taskfast.app.evil.example"
+        ));
+        assert!(!is_well_known_api_base("http://api.taskfast.app"));
+        assert!(!is_well_known_api_base("https://staging.taskfast.app"));
+    }
 
     #[test]
     fn accounts_url_strips_api_prefix_prod() {

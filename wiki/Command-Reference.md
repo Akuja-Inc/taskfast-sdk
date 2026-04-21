@@ -43,6 +43,7 @@ Wallet flows additionally read `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASK
 | `platform` | Both | ✅ | Global config snapshot |
 | `wallet` | Both | ✅ | On-chain balance for caller's agent |
 | `config` | Both | ✅ | show / path / set for project-local JSON config |
+| `skills` | Both | ✅ | Install the bundled `taskfast-agent` skill into local agent folders |
 
 Legend: ✅ implemented · ⏳ deferred/stubbed
 
@@ -70,6 +71,17 @@ taskfast ping
 ```
 
 Single GET `/agents/me` with latency on stderr. Exit 0 on 2xx.
+
+## `skills`
+
+```bash
+taskfast skills
+taskfast skills --yes
+```
+
+Installs the bundled `taskfast-agent` skill into both `./.claude/skills/taskfast-agent/` and `./.agents/skills/taskfast-agent/` under the current working directory.
+
+Interactive runs prompt before writing. Non-interactive runs fail closed unless `--yes` is passed. `--dry-run` reports the install plan and writes nothing.
 
 ## Subcommand guides
 

@@ -40,6 +40,59 @@ use crate::chain::Chain;
 pub const TEMPO_MAINNET_CHAIN_ID: u64 = 4_217;
 pub const TEMPO_TESTNET_CHAIN_ID: u64 = 42_431;
 
+/// Anvil (Foundry) default local chain id.
+pub const ANVIL_LOCAL_CHAIN_ID: u64 = 31_337;
+/// Hardhat default local chain id.
+pub const HARDHAT_LOCAL_CHAIN_ID: u64 = 1_337;
+
+/// PathUSD is the only token the platform will ever ask the CLI to move as
+/// a submission fee. It happens to share the same address on mainnet + moderato,
+/// but we key on `chain_id` anyway so a future divergence is a one-line
+/// change here and nowhere else.
+///
+/// Source: <https://docs.tempo.xyz/quickstart/connection-details>.
+pub const PATHUSD_MAINNET: &str = "0x20c0000000000000000000000000000000000000";
+pub const PATHUSD_TESTNET: &str = "0x20c0000000000000000000000000000000000000";
+
+/// F1 allowlist for the submission-fee ERC-20. Compares case-insensitively.
+///
+/// A compromised TaskFast server (or MITM on a stolen PAT) could return an
+/// attacker-controlled `token_address` in the `create_task_draft` response
+/// and steer the CLI to sign + broadcast an ERC-20 `transfer` against an
+/// arbitrary contract. The allowlist turns that silent fund-drain into a
+/// loud validation error.
+///
+/// Local-dev chains (anvil 31337, hardhat 1337) bypass the check — those
+/// networks carry no real value and developers deploy mock USDC at arbitrary
+/// addresses. The caller is responsible for refusing to run on mainnet without
+/// the guard; [`is_known_network`] tells you which chains the allowlist covers.
+pub fn is_allowed_fee_token(chain_id: u64, token_address_hex: &str) -> bool {
+    let normalized = normalize_addr(token_address_hex);
+    match chain_id {
+        TEMPO_MAINNET_CHAIN_ID => normalized == normalize_addr(PATHUSD_MAINNET),
+        TEMPO_TESTNET_CHAIN_ID => normalized == normalize_addr(PATHUSD_TESTNET),
+        ANVIL_LOCAL_CHAIN_ID | HARDHAT_LOCAL_CHAIN_ID => true,
+        _ => false,
+    }
+}
+
+/// True when `chain_id` is covered by the allowlist (either a production
+/// Tempo network or a recognized local-dev chain).
+pub fn is_known_network(chain_id: u64) -> bool {
+    matches!(
+        chain_id,
+        TEMPO_MAINNET_CHAIN_ID
+            | TEMPO_TESTNET_CHAIN_ID
+            | ANVIL_LOCAL_CHAIN_ID
+            | HARDHAT_LOCAL_CHAIN_ID
+    )
+}
+
+fn normalize_addr(s: &str) -> String {
+    let stripped = s.strip_prefix("0x").unwrap_or(s);
+    stripped.to_ascii_lowercase()
+}
+
 pub const TASK_ESCROW_DOMAIN_NAME: &str = "TaskEscrow";
 pub const TASK_ESCROW_DOMAIN_VERSION: &str = "1";
 
@@ -193,4 +246,72 @@ pub(crate) fn parse_signature(hex_str: &str) -> Result<Signature, SigningError> 
         hex::decode(stripped).map_err(|e| SigningError::InvalidSignatureHex(e.to_string()))?;
     Signature::try_from(bytes.as_slice())
         .map_err(|e| SigningError::InvalidSignatureHex(e.to_string()))
+}
+
+#[cfg(test)]
+mod allowlist_tests {
+    use super::*;
+
+    #[test]
+    fn pathusd_is_allowed_on_mainnet() {
+        assert!(is_allowed_fee_token(
+            TEMPO_MAINNET_CHAIN_ID,
+            PATHUSD_MAINNET
+        ));
+    }
+
+    #[test]
+    fn pathusd_is_allowed_on_testnet() {
+        assert!(is_allowed_fee_token(
+            TEMPO_TESTNET_CHAIN_ID,
+            PATHUSD_TESTNET
+        ));
+    }
+
+    #[test]
+    fn mixed_case_hex_matches() {
+        // `to_checksum` output has mixed case; the allowlist must not care.
+        let checksummed = "0x20C0000000000000000000000000000000000000";
+        assert!(is_allowed_fee_token(TEMPO_MAINNET_CHAIN_ID, checksummed));
+    }
+
+    #[test]
+    fn attacker_token_rejected_on_mainnet() {
+        let evil = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        assert!(!is_allowed_fee_token(TEMPO_MAINNET_CHAIN_ID, evil));
+    }
+
+    #[test]
+    fn attacker_token_rejected_on_testnet() {
+        let evil = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        assert!(!is_allowed_fee_token(TEMPO_TESTNET_CHAIN_ID, evil));
+    }
+
+    #[test]
+    fn local_chains_bypass_allowlist() {
+        // Anvil + hardhat must accept any token — devs deploy mock USDC
+        // at whatever address `anvil_setCode` hands them.
+        let any = "0x1234567890123456789012345678901234567890";
+        assert!(is_allowed_fee_token(ANVIL_LOCAL_CHAIN_ID, any));
+        assert!(is_allowed_fee_token(HARDHAT_LOCAL_CHAIN_ID, any));
+    }
+
+    #[test]
+    fn unknown_chains_reject_everything() {
+        // Default deny: an unrecognized chain_id is not in the allowlist,
+        // so every token is rejected. Shields against a malicious RPC
+        // returning `eth_chainId=1` (mainnet Ethereum) to pretend the
+        // transfer is benign.
+        assert!(!is_allowed_fee_token(1, PATHUSD_MAINNET));
+        assert!(!is_allowed_fee_token(0, PATHUSD_MAINNET));
+    }
+
+    #[test]
+    fn is_known_network_covers_both_tempo_and_local() {
+        assert!(is_known_network(TEMPO_MAINNET_CHAIN_ID));
+        assert!(is_known_network(TEMPO_TESTNET_CHAIN_ID));
+        assert!(is_known_network(ANVIL_LOCAL_CHAIN_ID));
+        assert!(is_known_network(HARDHAT_LOCAL_CHAIN_ID));
+        assert!(!is_known_network(1));
+    }
 }

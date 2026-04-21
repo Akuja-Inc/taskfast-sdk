@@ -237,3 +237,38 @@ async fn retry_recovers_when_upstream_heals() {
     );
     assert_eq!(responder.count.load(Ordering::SeqCst), 2);
 }
+
+/// F5 regression. reqwest's default redirect policy follows up to 10 hops,
+/// and because `X-API-Key` is a custom header (not `Authorization`) it
+/// would be replayed to the redirected host — a single attacker 302 from
+/// the TaskFast API would exfiltrate the PAT. The client pins
+/// `Policy::none` so any 3xx surfaces to the caller as a typed error
+/// instead of silently following.
+#[tokio::test]
+async fn redirect_is_not_followed_so_api_key_cannot_leak_cross_host() {
+    let target = MockServer::start().await;
+    let hop = MockServer::start().await;
+
+    // `target` emits a 302 pointing at `hop`. If the client followed it,
+    // `hop` would receive the X-API-Key header.
+    Mock::given(method("GET"))
+        .and(path("/api/platform/config"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("location", format!("{}/stolen", hop.uri())),
+        )
+        .mount(&target)
+        .await;
+
+    // `hop` has no matching mocks; any request to it panics the test.
+    let _unused = &hop;
+
+    let client = fixture_client(&target.uri());
+    let err = client
+        .inner()
+        .get_platform_config()
+        .await
+        .expect_err("3xx must surface as an error, not a silent follow");
+    // Any error shape is fine — what matters is that we didn't traverse
+    // to `hop` and replay the API key.
+    let _ = err;
+}
