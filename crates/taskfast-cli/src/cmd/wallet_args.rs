@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use alloy_signer_local::PrivateKeySigner;
+use zeroize::Zeroizing;
 
 use taskfast_agent::keystore::{self, KeySource};
 
@@ -46,16 +47,24 @@ pub fn load_signer(
     let path_str = raw.strip_prefix("file:").unwrap_or(raw);
     let password = resolve_password(password_file)?;
     let path = PathBuf::from(path_str);
+    // `&*password` narrows `Zeroizing<String>` → `&str` only at the
+    // keystore boundary; the buffer zeroizes on drop at end of scope.
     keystore::load(&KeySource::File { path }, &password).map_err(CmdError::from)
 }
 
 /// Resolve the keystore password: env var wins over file. Trims trailing
 /// `\r`/`\n` but rejects a file that is otherwise empty.
-pub fn resolve_password(password_file: Option<&Path>) -> Result<String, CmdError> {
+///
+/// Wraps the secret in [`Zeroizing`] so the backing allocation is scrubbed
+/// on drop — reduces the in-memory window of the plaintext password within
+/// *our* address space. The scrypt derivation inside
+/// `alloy_signer_local::decrypt_keystore` copies the bytes into its own
+/// buffer we cannot control; this fix shrinks the CLI's copy scope.
+pub fn resolve_password(password_file: Option<&Path>) -> Result<Zeroizing<String>, CmdError> {
     if let Ok(pw) = std::env::var("TASKFAST_WALLET_PASSWORD") {
         if !pw.is_empty() {
             warn_pwd_env_once();
-            return Ok(pw);
+            return Ok(Zeroizing::new(pw));
         }
     }
     let path = password_file.ok_or_else(|| {
@@ -63,9 +72,9 @@ pub fn resolve_password(password_file: Option<&Path>) -> Result<String, CmdError
             "TASKFAST_WALLET_PASSWORD or --wallet-password-file required to unlock keystore".into(),
         )
     })?;
-    let raw = std::fs::read_to_string(path).map_err(|e| {
+    let raw = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
         CmdError::Usage(format!("read wallet password file {}: {e}", path.display()))
-    })?;
+    })?);
     let trimmed = raw.trim_end_matches(['\n', '\r']);
     if trimmed.is_empty() {
         return Err(CmdError::Usage(format!(
@@ -73,7 +82,17 @@ pub fn resolve_password(password_file: Option<&Path>) -> Result<String, CmdError
             path.display()
         )));
     }
-    Ok(trimmed.to_string())
+    // F13: a trailing newline is fine (editors add one), but a newline
+    // *inside* the trimmed body almost always means the operator pasted
+    // extra content (two passwords, a commented-out line, a stray label).
+    // Refuse rather than silently taking the first line as the password.
+    if trimmed.contains('\n') || trimmed.contains('\r') {
+        return Err(CmdError::Usage(format!(
+            "wallet password file {} must contain a single line (found an interior newline)",
+            path.display()
+        )));
+    }
+    Ok(Zeroizing::new(trimmed.to_string()))
 }
 
 /// Print the `TASKFAST_WALLET_PASSWORD` deprecation nudge to stderr once
@@ -114,7 +133,7 @@ mod tests {
         let f = write_temp("from-file\n");
         std::env::set_var("TASKFAST_WALLET_PASSWORD", "from-env");
         let pw = resolve_password(Some(f.path())).expect("ok");
-        assert_eq!(pw, "from-env");
+        assert_eq!(pw.as_str(), "from-env");
         std::env::remove_var("TASKFAST_WALLET_PASSWORD");
     }
 
@@ -124,7 +143,47 @@ mod tests {
         std::env::remove_var("TASKFAST_WALLET_PASSWORD");
         let f = write_temp("secret\r\n");
         let pw = resolve_password(Some(f.path())).expect("ok");
-        assert_eq!(pw, "secret");
+        assert_eq!(pw.as_str(), "secret");
+    }
+
+    #[test]
+    fn password_rejects_interior_newline() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("TASKFAST_WALLET_PASSWORD");
+        let f = write_temp("first-line\nsecond-line\n");
+        let err = resolve_password(Some(f.path())).expect_err("multi-line must fail");
+        match err {
+            CmdError::Usage(m) => assert!(
+                m.contains("single line"),
+                "message must name the constraint: {m}"
+            ),
+            other => panic!("expected Usage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn password_rejects_interior_carriage_return() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("TASKFAST_WALLET_PASSWORD");
+        // CRLF in the middle (Windows-edited file with a stray prefix line).
+        let f = write_temp("annotation\r\nsecret\n");
+        let err = resolve_password(Some(f.path())).expect_err("must fail");
+        assert!(matches!(err, CmdError::Usage(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn password_is_zeroizing_wrapped() {
+        // Compile-time proof: return type is Zeroizing<String>, i.e. drop
+        // scrubs the backing allocation. Sanity-check via the type name.
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("TASKFAST_WALLET_PASSWORD");
+        let f = write_temp("scrubme\n");
+        let pw = resolve_password(Some(f.path())).expect("ok");
+        let name = std::any::type_name_of_val(&pw);
+        assert!(
+            name.contains("Zeroizing"),
+            "password must be Zeroizing: {name}"
+        );
     }
 
     #[test]

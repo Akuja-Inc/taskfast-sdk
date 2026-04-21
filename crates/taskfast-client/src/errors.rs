@@ -52,3 +52,22 @@ pub enum Error {
     #[error("decode: {0}")]
     Decode(#[from] serde_json::Error),
 }
+
+impl Error {
+    /// Short, stable variant tag for logging without leaking the inner
+    /// message. A compromised server (or an endpoint that echoes request
+    /// bodies into its error strings) could land an `X-API-Key` value
+    /// inside an `Auth`/`Server` payload — logging the full `Display`
+    /// would then page the secret into any log sink. Callers that need
+    /// logging should prefer [`Self::kind`] over `?err`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Auth(_) => "auth",
+            Self::Validation { .. } => "validation",
+            Self::RateLimited { .. } => "rate_limited",
+            Self::Server(_) => "server",
+            Self::Network(_) => "network",
+            Self::Decode(_) => "decode",
+        }
+    }
+}

@@ -84,6 +84,14 @@ struct Cli {
     #[arg(long, global = true, conflicts_with = "verbose")]
     quiet: bool,
 
+    /// Opt into a custom `api_base` or `tempo_rpc_url` that isn't one of
+    /// the well-known TaskFast defaults. Off by default: a malicious
+    /// `.taskfast/config.json` in a cloned repo would otherwise silently
+    /// redirect API traffic and ERC-20 fee transfers to attacker infra.
+    /// Accepts `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`.
+    #[arg(long, global = true, env = "TASKFAST_ALLOW_CUSTOM_ENDPOINTS")]
+    allow_custom_endpoints: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -144,6 +152,8 @@ enum Command {
     /// Inspect or edit the project-local JSON config.
     #[command(subcommand)]
     Config(cmd::config::Command),
+    /// Install the bundled TaskFast agent skill into local agent folders.
+    Skills(cmd::skills::Args),
 }
 
 #[tokio::main]
@@ -172,6 +182,7 @@ async fn main() -> std::process::ExitCode {
         Some(cfg_path),
         cli.dry_run,
         cli.quiet,
+        cli.allow_custom_endpoints,
         &cfg,
     ) {
         Ok(c) => c,
@@ -238,18 +249,21 @@ async fn main() -> std::process::ExitCode {
         Command::Platform(c) => cmd::platform::run(&ctx, c).await,
         Command::Wallet(c) => cmd::wallet::run(&ctx, c).await,
         Command::Config(c) => cmd::config::run(&ctx, c).await,
+        Command::Skills(a) => cmd::skills::run(&ctx, a).await,
     };
 
     match result {
         Ok(env) => {
             if !ctx.quiet {
-                env.emit();
+                env.with_warnings(ctx.security_warnings()).emit();
             }
             exit::ExitCode::Success.into()
         }
         Err(e) => {
             if !ctx.quiet {
-                Envelope::error(ctx.environment, ctx.dry_run, &e).emit();
+                Envelope::error(ctx.environment, ctx.dry_run, &e)
+                    .with_warnings(ctx.security_warnings())
+                    .emit();
             }
             e.exit_code().into()
         }

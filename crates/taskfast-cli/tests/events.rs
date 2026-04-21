@@ -31,7 +31,7 @@ fn envelope_value(env: &Envelope) -> serde_json::Value {
 async fn poll_forwards_cursor_and_limit_and_returns_events() {
     let server = MockServer::start().await;
     let event = json!({
-        "id": "00000000-0000-0000-0000-0000000000e1",
+        "event_id": "00000000-0000-0000-0000-0000000000e1",
         "event": "task_disputed",
         "occurred_at": "2026-04-13T21:00:00Z",
         "task_id": "00000000-0000-0000-0000-0000000000aa",
@@ -322,4 +322,51 @@ async fn schema_unknown_event_is_validation_error() {
         CmdError::Validation { code, .. } => assert_eq!(code, "unknown_event"),
         other => panic!("expected Validation, got {other:?}"),
     }
+}
+
+/// Regression for the poll exit-6 bug: one malformed event must not
+/// poison the whole page. Envelope carries a good event plus an
+/// `unparseable` array entry instead of bailing on decode.
+#[tokio::test]
+async fn poll_tolerates_malformed_event_and_surfaces_unparseable() {
+    let server = MockServer::start().await;
+    let good = json!({
+        "event_id": "00000000-0000-0000-0000-0000000000e1",
+        "event": "task_disputed",
+        "occurred_at": "2026-04-20T00:00:00Z",
+        "data": {},
+    });
+    let bad = json!({
+        "event": "task_disputed",
+        "occurred_at": "2026-04-20T00:00:00Z",
+        "data": {},
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/agents/me/events"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [good, bad],
+            "meta": { "next_cursor": null, "has_more": false, "total_count": 2 },
+        })))
+        .mount(&server)
+        .await;
+
+    let envelope = run(
+        &ctx_for(&server, Some("test-key")),
+        Command::Poll(PollArgs {
+            cursor: None,
+            limit: 25,
+        }),
+    )
+    .await
+    .expect("tolerant poll should succeed");
+
+    let v = envelope_value(&envelope);
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["data"]["events"].as_array().unwrap().len(), 1);
+    assert_eq!(v["data"]["events"][0]["event"], "task_disputed");
+    assert_eq!(v["data"]["unparseable"].as_array().unwrap().len(), 1);
+    assert!(v["data"]["unparseable"][0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("event_id"));
 }

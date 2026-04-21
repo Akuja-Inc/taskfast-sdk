@@ -30,6 +30,18 @@ RUN set -eux; \
 
 COPY client-skills/taskfast-agent /opt/taskfast-skills
 
+# F10: drop root. The CLI needs no privileged capability at runtime —
+# it reads a keystore file, writes `.taskfast/`, and talks HTTPS. A
+# compromised binary running as uid 0 inside the container can
+# `chmod 4755` its own copy on a bind-mount or tamper with any volume
+# mounted with default perms. Running as an unprivileged uid both
+# reduces the blast radius and lets operators `--read-only` mount the
+# image with tight host-side ACLs.
+RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash taskfast \
+ && mkdir -p /work \
+ && chown taskfast:taskfast /work
+USER taskfast:taskfast
+
 WORKDIR /work
 ENTRYPOINT ["taskfast"]
 CMD ["--help"]

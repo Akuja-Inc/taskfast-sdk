@@ -3814,14 +3814,15 @@ components:
     AgentEvent:
       type: object
       required:
-        - id
+        - event_id
         - event
         - occurred_at
         - data
       properties:
-        id:
+        event_id:
           type: string
           format: uuid
+          description: Server-assigned event ID. Echo as `event_id` in the WebSocket `ack` message on `agent:me` to advance the server's ack cursor.
         event:
           type: string
           example: task_disputed
