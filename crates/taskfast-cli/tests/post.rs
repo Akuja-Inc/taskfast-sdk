@@ -22,6 +22,10 @@ fn ctx_for(server: &MockServer, key: Option<&str>) -> Ctx {
         config_path: std::path::PathBuf::from("/dev/null"),
         dry_run: false,
         quiet: true,
+        // Mock RPC server runs on an ephemeral 127.0.0.1 port — not
+        // well-known. Tests exercise the real post pipeline, so flip the
+        // F2 opt-in (same as `--allow-custom-endpoints` from main).
+        allow_custom_endpoints: true,
         ..Default::default()
     }
 }
@@ -116,7 +120,7 @@ async fn post_happy_path_end_to_end() {
         buf.extend([0u8; 32]);
         format!("0x{}", hex::encode(buf))
     };
-    let token_addr = "0x00000000000000000000000000000000000000aa";
+    let token_addr = "0x20c0000000000000000000000000000000000000";
     let tx_hash_hex = format!("0x{}", "aa".repeat(32));
 
     Mock::given(method("POST"))
@@ -268,7 +272,7 @@ async fn post_keystore_address_mismatch_is_usage_error() {
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "draft_id": draft_id,
             "payload_to_sign": calldata_hex,
-            "token_address": "0x00000000000000000000000000000000000000aa",
+            "token_address": "0x20c0000000000000000000000000000000000000",
         })))
         .mount(&api_server)
         .await;
@@ -295,6 +299,61 @@ async fn post_keystore_address_mismatch_is_usage_error() {
             assert!(msg.contains("does not match"), "unexpected message: {msg}")
         }
         other => panic!("expected Usage, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn post_rejects_non_allowlisted_fee_token() {
+    // F1 regression: a compromised server (or MITM on a stolen PAT) returns
+    // an attacker-controlled `token_address`. The CLI must refuse to sign
+    // instead of broadcasting an ERC-20 transfer to whatever contract the
+    // server named.
+    let api_server = MockServer::start().await;
+    let rpc_server = MockServer::start().await;
+
+    let draft_id = uuid::Uuid::new_v4();
+    let calldata_hex = format!("0x{}", "00".repeat(4 + 64));
+    let attacker_token = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+
+    Mock::given(method("POST"))
+        .and(path("/api/task_drafts"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "draft_id": draft_id,
+            "payload_to_sign": calldata_hex,
+            "token_address": attacker_token,
+        })))
+        .mount(&api_server)
+        .await;
+
+    // RPC returns the real testnet chain id → allowlist is active.
+    mount_rpc_mocks(&rpc_server, &format!("0x{}", "aa".repeat(32))).await;
+
+    let signer = PrivateKeySigner::random();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let keystore_path = tmp.path().join("wallet.json");
+    taskfast_agent::keystore::save_signer(&signer, &keystore_path, "pw").expect("keystore");
+    let password_path = tmp.path().join("pw");
+    std::fs::write(&password_path, b"pw").unwrap();
+
+    let wallet_addr = format!("{:#x}", signer.address());
+    let mut args = base_args(Some(wallet_addr), Some(keystore_path.display().to_string()));
+    args.wallet_password_file = Some(password_path);
+    args.rpc_url = Some(rpc_server.uri());
+
+    // Explicitly turn off the opt-in so the allowlist's chain-id guard is
+    // active even though the api_base is a mock URL.
+    let mut ctx = ctx_for(&api_server, Some("test-key"));
+    ctx.allow_custom_endpoints = true; // needed for mock api/rpc URLs
+    let err = run(&ctx, args)
+        .await
+        .expect_err("attacker token must be refused");
+    match err {
+        CmdError::Validation { code, message } => {
+            assert_eq!(code, "fee_token_not_allowed");
+            assert!(message.contains(attacker_token), "msg: {message}");
+            assert!(message.contains("allowlist"), "msg: {message}");
+        }
+        other => panic!("expected Validation, got {other:?}"),
     }
 }
 
@@ -335,7 +394,7 @@ async fn post_forwards_completion_criteria() {
         buf.extend([0u8; 32]);
         format!("0x{}", hex::encode(buf))
     };
-    let token_addr = "0x00000000000000000000000000000000000000aa";
+    let token_addr = "0x20c0000000000000000000000000000000000000";
     let tx_hash_hex = format!("0x{}", "aa".repeat(32));
 
     // body_partial_json matches on a subset — this asserts the field is
@@ -455,7 +514,7 @@ async fn post_criteria_file_merges_with_inline() {
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "draft_id": draft_id,
             "payload_to_sign": calldata_hex,
-            "token_address": "0x00000000000000000000000000000000000000aa",
+            "token_address": "0x20c0000000000000000000000000000000000000",
         })))
         .mount(&api_server)
         .await;

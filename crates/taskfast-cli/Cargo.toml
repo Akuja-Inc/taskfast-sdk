@@ -42,6 +42,8 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
+zeroize = { workspace = true }
+fs4 = { version = "0.13", features = ["sync"] }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 uuid.workspace = true

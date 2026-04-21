@@ -10,7 +10,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use taskfast_agent::events::{list_events_page, stream_events, PollOptions};
+use taskfast_agent::events::{
+    list_events_page, list_events_page_tolerant, stream_events, PollOptions,
+};
 use taskfast_client::TaskFastClient;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -21,7 +23,7 @@ fn client(server: &MockServer) -> TaskFastClient {
 
 fn event(id: &str, name: &str) -> serde_json::Value {
     serde_json::json!({
-        "id": id,
+        "event_id": id,
         "event": name,
         "data": { "note": "x" },
         "occurred_at": "2026-03-23T12:00:00Z",
@@ -216,4 +218,59 @@ async fn stream_surfaces_errors_without_terminating() {
     // Second yield: next fetch succeeds and we recover.
     let recovered = stream.next().await.unwrap().expect("ok");
     assert_eq!(recovered.event, "recovered");
+}
+
+#[tokio::test]
+async fn tolerant_page_surfaces_good_events_alongside_unparseable() {
+    let server = MockServer::start().await;
+    // Mix: one well-formed event, one missing the required `event_id`.
+    // Strict decode would fail the whole page (exit 6); tolerant decode
+    // yields 1 good + 1 unparseable entry.
+    let good = serde_json::json!({
+        "event_id": "11111111-1111-1111-1111-111111111111",
+        "event": "task_assigned",
+        "data": {},
+        "occurred_at": "2026-04-20T00:00:00Z",
+    });
+    let bad = serde_json::json!({
+        "event": "task_assigned",
+        "data": {},
+        "occurred_at": "2026-04-20T00:00:00Z",
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/agents/me/events"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(page(vec![good, bad], None, false)))
+        .mount(&server)
+        .await;
+
+    let out = list_events_page_tolerant(&client(&server), None, Some(25))
+        .await
+        .expect("tolerant page decode");
+    assert_eq!(out.events.len(), 1);
+    assert_eq!(out.events[0].event, "task_assigned");
+    assert_eq!(out.unparseable.len(), 1);
+    assert!(out.unparseable[0].error.contains("event_id"));
+}
+
+#[tokio::test]
+async fn tolerant_page_bails_when_meta_is_broken() {
+    let server = MockServer::start().await;
+    // Meta missing has_more -> envelope broken -> bail. We cannot advance
+    // the cursor on a malformed envelope, so per-item tolerance doesn't apply.
+    Mock::given(method("GET"))
+        .and(path("/api/agents/me/events"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [],
+            "meta": { "next_cursor": null },
+        })))
+        .mount(&server)
+        .await;
+
+    let err = list_events_page_tolerant(&client(&server), None, Some(25))
+        .await
+        .expect_err("meta malformed must fail");
+    assert!(
+        matches!(err, taskfast_client::Error::Decode(_)),
+        "expected Decode, got {err:?}"
+    );
 }

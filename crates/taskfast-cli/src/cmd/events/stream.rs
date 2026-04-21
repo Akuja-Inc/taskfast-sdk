@@ -208,7 +208,15 @@ async fn run_once(
                     Some(Ok(Message::Text(text))) => {
                         let parsed: Value = match serde_json::from_str(&text) {
                             Ok(v) => v,
-                            Err(_) => continue,
+                            Err(e) => {
+                                tracing::warn!(
+                                    target: "taskfast::events",
+                                    error = %e,
+                                    "WS text frame was not valid JSON; surfacing as unparseable"
+                                );
+                                emit_unparseable(&text, &e.to_string());
+                                continue;
+                            }
                         };
                         match classify_frame(&parsed) {
                             FrameKind::JoinOk => {
@@ -364,6 +372,14 @@ fn emit_event(payload: &Value) {
     let mut guard = stdout.lock();
     let _ = guard.write_all(&buf);
     let _ = guard.flush();
+}
+
+/// Surface a malformed WS text frame on the `--json` path instead of
+/// swallowing it. The `type: "unparseable"` tag keeps consumers' stream
+/// parsers from mistaking it for a regular event.
+fn emit_unparseable(raw: &str, error: &str) {
+    let payload = json!({ "type": "unparseable", "raw": raw, "error": error });
+    emit_event(&payload);
 }
 
 fn emit_error_envelope(ctx: &Ctx, err: &CmdError) {

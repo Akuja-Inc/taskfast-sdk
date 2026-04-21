@@ -292,25 +292,26 @@ async fn delete(ctx: &Ctx) -> CmdResult {
     ))
 }
 
-/// Write the signing secret with 0600 permissions on unix. The write +
-/// chmod pair is *not* atomic — a concurrent reader on the same path
-/// could observe the new contents before the mode tightens. The risk
-/// is narrow (local agent workflow, single writer) and the shell
-/// script had the same property; fixing it would mean a tempfile +
-/// rename dance that isn't worth the complexity here.
+/// Persist the webhook signing secret atomically with 0600 perms on unix.
+///
+/// Writes to a sibling `.tmp`, chmods it 0600 *before* the rename, then
+/// renames into place. The destination path therefore never exists with
+/// mode 0644 — a concurrent reader observes either the old contents (or
+/// ENOENT) or the new contents at 0600, never a half-written file at
+/// looser perms. Mirrors [`crate::config::Config::save`].
 pub(crate) fn persist_secret(path: &std::path::Path, secret: &str) -> Result<(), CmdError> {
-    fs::write(path, secret)
-        .map_err(|e| CmdError::Usage(format!("write {}: {e}", path.display())))?;
+    let tmp = path.with_extension("secret.tmp");
+    fs::write(&tmp, secret)
+        .map_err(|e| CmdError::Usage(format!("write {}: {e}", tmp.display())))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(path)
-            .map_err(|e| CmdError::Usage(format!("stat {}: {e}", path.display())))?
-            .permissions();
-        perms.set_mode(0o600);
-        fs::set_permissions(path, perms)
-            .map_err(|e| CmdError::Usage(format!("chmod {}: {e}", path.display())))?;
+        let perms = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(&tmp, perms)
+            .map_err(|e| CmdError::Usage(format!("chmod {}: {e}", tmp.display())))?;
     }
+    fs::rename(&tmp, path)
+        .map_err(|e| CmdError::Usage(format!("rename into {}: {e}", path.display())))?;
     Ok(())
 }
 

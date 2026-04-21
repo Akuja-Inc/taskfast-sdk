@@ -34,6 +34,12 @@ use crate::retry::{with_backoff, RetryPolicy};
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Default total request timeout (connect + body read).
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Hard cap on any single response body we read (16 MiB). TaskFast
+/// responses are JSON envelopes — the largest realistic payload is a
+/// task list page, ~KBs. A 16-MiB ceiling gives generous headroom
+/// while preventing a compromised (or buggy) server from memory-
+/// exhausting the CLI with a gigabyte body.
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Authenticated TaskFast API client.
 pub struct TaskFastClient {
@@ -58,10 +64,18 @@ impl TaskFastClient {
         let mut headers = HeaderMap::new();
         headers.insert("X-API-Key", value);
 
+        // F5: pin redirect policy to `none`. reqwest's default follows up
+        // to 10 redirects. `Authorization` is stripped cross-host by
+        // reqwest, but `X-API-Key` is a custom header so it would be
+        // replayed verbatim to whatever 3xx `Location` the server points
+        // at — exfiltrating the PAT on a single malicious redirect. The
+        // real API never 3xx's, so refusing all redirects is safe: a 302
+        // from `api.taskfast.app` is itself the anomaly we want to catch.
         let http = reqwest::ClientBuilder::new()
             .default_headers(headers)
             .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
             .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
         let resolved = format!("{}/api", base_url.trim_end_matches('/'));
@@ -131,7 +145,8 @@ impl TaskFastClient {
         let resp = self.inner.client().get(url).send().await?;
         let status = resp.status();
         if status.is_success() {
-            return Ok(Some(resp.json::<UserProfile>().await?));
+            let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
+            return Ok(Some(serde_json::from_slice::<UserProfile>(&bytes)?));
         }
         if status == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -161,11 +176,64 @@ impl TaskFastClient {
         let form = reqwest::multipart::Form::new().part("file", part);
         let resp = self.inner.client().post(url).multipart(form).send().await?;
         if resp.status().is_success() {
-            Ok(resp.json::<api::types::Artifact>().await?)
+            let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
+            Ok(serde_json::from_slice::<api::types::Artifact>(&bytes)?)
         } else {
             Err(classify_response(resp).await)
         }
     }
+
+    /// `GET /agents/me/events` — raw JSON escape hatch.
+    ///
+    /// Mirrors the generated `list_agent_events` but returns
+    /// [`serde_json::Value`] instead of the strict [`api::types::AgentEventListResponse`]
+    /// so the agent layer can apply per-item tolerant decoding when a
+    /// single malformed event would otherwise fail the whole page.
+    /// Non-2xx responses still funnel through `classify_response`.
+    pub async fn list_agent_events_raw(
+        &self,
+        cursor: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/agents/me/events", self.inner.baseurl());
+        let mut req = self.inner.client().get(url);
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if let Some(c) = cursor {
+            query.push(("cursor", c.to_string()));
+        }
+        if let Some(l) = limit {
+            query.push(("limit", l.to_string()));
+        }
+        if !query.is_empty() {
+            req = req.query(&query);
+        }
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(classify_response(resp).await);
+        }
+        let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
+        Ok(serde_json::from_slice::<serde_json::Value>(&bytes)?)
+    }
+}
+
+/// Stream `resp` body chunks into memory, refusing to allocate past `cap`.
+///
+/// Reqwest offers no native body-size cap on the ClientBuilder. Wrapping
+/// `chunk()` is the cheap route: each call yields whatever reqwest has
+/// buffered, so we can bail as soon as the running total would exceed
+/// the ceiling — no need for a trusted `Content-Length` header (chunked
+/// bodies from a malicious server carry none).
+async fn read_body_capped(mut resp: reqwest::Response, cap: usize) -> Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if buf.len().saturating_add(chunk.len()) > cap {
+            return Err(Error::Server(format!(
+                "response body exceeds {cap}-byte safety cap"
+            )));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
 }
 
 /// Translate a progenitor [`api::Error<()>`] into a typed [`Error`].
@@ -227,10 +295,14 @@ async fn classify_response(resp: reqwest::Response) -> Error {
     let status = resp.status();
     let code = status.as_u16();
     let retry_after = parse_retry_after(&resp);
-    let body = match resp.text().await {
-        Ok(b) => b,
+    // Cap the error body read at 64 KiB. TaskFast error envelopes are
+    // `{error, message}` JSON objects — a megabyte-class body on a 4xx
+    // is an abuse signal, not a legitimate payload. Smaller cap than
+    // success bodies: error paths never carry task-list pages.
+    let body = match read_body_capped(resp, 64 * 1024).await {
+        Ok(b) => String::from_utf8_lossy(&b).into_owned(),
         Err(e) => {
-            tracing::warn!(error = %e, %code, "classify_response: failed to read body");
+            tracing::warn!(error = %e.kind(), %code, "classify_response: failed to read body");
             String::new()
         }
     };

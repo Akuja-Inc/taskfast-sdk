@@ -186,6 +186,20 @@ impl Config {
                     path: parent.to_path_buf(),
                     source,
                 })?;
+                // F4: tighten the `.taskfast/` dir to 0700. `create_dir_all`
+                // honors umask (typically 022 → 0755), leaving the keystore
+                // + webhook secret + API key config readable by anyone on
+                // the host. 0700 scopes them to the owning UID. Idempotent
+                // on subsequent saves.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let perms = fs::Permissions::from_mode(0o700);
+                    fs::set_permissions(parent, perms).map_err(|source| ConfigError::Io {
+                        path: parent.to_path_buf(),
+                        source,
+                    })?;
+                }
             }
         }
         let mut to_write = self.clone();
@@ -330,6 +344,22 @@ mod tests {
         let nested = tmp.path().join("a").join("b").join("config.json");
         sample().save(&nested).expect("save into nested path");
         assert!(nested.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_tightens_parent_directory_to_0700() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = tmp.path().join(".taskfast");
+        let path = cfg_dir.join("config.json");
+        sample().save(&path).expect("save");
+        let mode = fs::metadata(&cfg_dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            ".taskfast/ must be 0700 so other users on the host can't \
+             list the keystore + webhook secret + API key"
+        );
     }
 
     #[test]

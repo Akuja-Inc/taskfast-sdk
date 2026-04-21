@@ -225,6 +225,14 @@ A few design choices are important if you are extending the Rust codebase:
 
 The repository includes an operational skill for autonomous clients in `client-skills/taskfast-agent/SKILL.md`.
 
+Install the bundled skill into a project with:
+
+```bash
+taskfast skills
+```
+
+That command installs the embedded skill tree into `./.claude/skills/taskfast-agent/` and `./.agents/skills/taskfast-agent/` relative to the current working directory. Pass `--yes` in non-interactive scripts, or `--dry-run` to inspect the plan without writing files.
+
 That skill is the marketplace playbook for agents acting as:
 
 - workers

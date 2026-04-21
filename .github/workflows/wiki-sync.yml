@@ -3,6 +3,18 @@ name: Wiki sync
 # Mirrors /wiki/ on main to the separate <repo>.wiki.git repo.
 # Canonical source lives in this repo so changes go through PR review.
 #
+# F12 hardening: authenticates to the wiki via a dedicated SSH deploy
+# key (`WIKI_DEPLOY_KEY` secret), NOT the default `GITHUB_TOKEN`. The
+# deploy key has write access only to this repo's wiki, so even if
+# a malicious wiki commit ever tricked a step into misbehaving, the
+# credential in scope cannot push to `main` or touch release infra.
+# Workflow `permissions:` is narrowed to `contents: read` accordingly.
+#
+# Operator setup (one-time):
+#   1. ssh-keygen -t ed25519 -f wiki_deploy -N ''
+#   2. Paste `wiki_deploy.pub` as a repo deploy key with "Allow write access".
+#   3. Paste `wiki_deploy` (private) into repo secret `WIKI_DEPLOY_KEY`.
+#
 # Security note: this workflow only consumes runner-provided env vars
 # (GITHUB_REPOSITORY, GITHUB_SHA) and secrets — no event-derived user
 # input (issue titles, PR bodies, commit messages) is interpolated into
@@ -21,7 +33,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sync:
@@ -32,19 +44,23 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Install wiki deploy key
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd  # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.WIKI_DEPLOY_KEY }}
+
       - name: Mirror wiki/ to wiki.git
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          WIKI_URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git"
+          WIKI_URL="git@github.com:${REPO}.wiki.git"
 
           # Wiki repo only exists after first page is seeded via the UI.
           if ! git ls-remote "$WIKI_URL" >/dev/null 2>&1; then
-            echo "::error::Wiki repo not initialized. Enable Wiki in Settings → Features and seed the first page via the GitHub UI before this workflow can sync."
+            echo "::error::Wiki repo not initialized OR WIKI_DEPLOY_KEY lacks write access. Enable Wiki in Settings → Features, seed the first page via the UI, then add the deploy key."
             exit 1
           fi
 

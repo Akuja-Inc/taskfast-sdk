@@ -8,6 +8,8 @@ extend-exclude = [
 
 [default.extend-identifiers]
 "am-iit" = "am-iit"
+"unparseable" = "unparseable"
 
 [default.extend-words]
 iit = "iit"
+unparseable = "unparseable"
