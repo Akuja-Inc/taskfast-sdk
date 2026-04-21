@@ -74,7 +74,11 @@ where
                     return Err(err);
                 }
                 let delay = delay_for(&err, attempt, &opts);
-                tracing::debug!(attempt, ?delay, ?err, "retrying after error");
+                // F6: log only the variant tag, never the inner message.
+                // If a server ever echoes the X-API-Key header into an
+                // error body, the full Display / Debug would carry that
+                // secret into every log sink downstream.
+                tracing::debug!(attempt, ?delay, kind = err.kind(), "retrying after error");
                 tokio::time::sleep(delay).await;
                 attempt += 1;
             }

@@ -31,6 +31,7 @@ use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
 use taskfast_agent::tempo_rpc::{sign_and_broadcast_erc20_transfer, TempoRpcClient};
+use taskfast_chains::tempo::{is_allowed_fee_token, is_known_network};
 use taskfast_client::api::types::{
     CompletionCriterionInput, TaskDraftPrepareRequest, TaskDraftPrepareRequestAssignmentType,
     TaskDraftPrepareRequestPosterWalletAddress, TaskDraftSubmitRequest,
@@ -43,6 +44,63 @@ use taskfast_client::map_api_error;
 /// here would silently point the CLI at the wrong chain.
 const TEMPO_MAINNET_RPC: &str = "https://rpc.tempo.xyz";
 const TEMPO_TESTNET_RPC: &str = "https://rpc.moderato.tempo.xyz";
+
+/// F2 allowlist for `tempo_rpc_url` overrides. Matches the two canonical
+/// Tempo RPC endpoints. Mirrors [`crate::WELL_KNOWN_API_BASES`] but for
+/// the chain RPC side. A malicious config pointing this elsewhere would
+/// let an attacker observe the poster's wallet address (via
+/// `eth_getTransactionCount`) and, worse, return inflated `eth_gasPrice`
+/// to burn funds.
+const WELL_KNOWN_TEMPO_RPCS: &[&str] = &[TEMPO_MAINNET_RPC, TEMPO_TESTNET_RPC];
+
+/// True when `url` exactly matches [`WELL_KNOWN_TEMPO_RPCS`]. Tolerates
+/// a trailing `/` for config-file ergonomics.
+fn is_well_known_tempo_rpc(url: &str) -> bool {
+    let trimmed = url.trim_end_matches('/');
+    WELL_KNOWN_TEMPO_RPCS
+        .iter()
+        .any(|w| w.trim_end_matches('/') == trimmed)
+}
+
+/// True when the host is a loopback literal (`localhost`, `127.0.0.1`,
+/// `[::1]`). Used to carve out a bypass for the mainnet-HTTPS-enforce
+/// check when developers run against a local anvil/hardhat node.
+fn is_loopback_url(url: &str) -> bool {
+    match url::Url::parse(url) {
+        Ok(u) => matches!(
+            u.host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
+        ),
+        Err(_) => false,
+    }
+}
+
+/// F2 RPC-URL guard. Refuses:
+///   * A custom `tempo_rpc_url` that isn't in [`WELL_KNOWN_TEMPO_RPCS`]
+///     unless `allow_custom_endpoints` is set.
+///   * A plain-HTTP mainnet RPC, unless the host is loopback.
+///
+/// Returns the original URL on success so callers can chain.
+fn validate_rpc_url(url: &str, network: Network, allow_custom: bool) -> Result<&str, CmdError> {
+    let custom = !is_well_known_tempo_rpc(url);
+    if custom && !allow_custom {
+        return Err(CmdError::Usage(format!(
+            "refusing to use custom tempo_rpc_url {url:?}: pass \
+             --allow-custom-endpoints (or set \
+             TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1) to override. Guards \
+             against a malicious .taskfast/config.json redirecting \
+             fee-transfer RPC traffic."
+        )));
+    }
+    if matches!(network, Network::Mainnet) && url.starts_with("http://") && !is_loopback_url(url) {
+        return Err(CmdError::Usage(format!(
+            "refusing plain-HTTP mainnet tempo_rpc_url {url:?}: MITM on a \
+             mainnet RPC can observe the poster wallet and inflate gas \
+             price. Use HTTPS or point at loopback for local testing."
+        )));
+    }
+    Ok(url)
+}
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -229,6 +287,7 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
         .rpc_url
         .clone()
         .unwrap_or_else(|| args.network.default_rpc_url().to_string());
+    validate_rpc_url(&rpc_url, args.network, ctx.allow_custom_endpoints)?;
 
     if ctx.dry_run {
         return Ok(Envelope::success(
@@ -292,6 +351,59 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
     }
 
     let rpc = TempoRpcClient::new(reqwest::Client::new(), rpc_url.clone());
+
+    // F1: consult the chain's own `eth_chainId` (not anything the server
+    // claims) and refuse to sign a `transfer` against a token that isn't
+    // on the PathUSD allowlist for that chain. A compromised TaskFast API
+    // returning an attacker `token_address` is the fund-drain vector here.
+    let chain_id = rpc
+        .chain_id()
+        .await
+        .map_err(|e| CmdError::Server(format!("tempo rpc eth_chainId: {e}")))?;
+    if !ctx.allow_custom_endpoints && !is_known_network(chain_id) {
+        return Err(CmdError::Validation {
+            code: "unknown_chain".into(),
+            message: format!(
+                "RPC reports chain_id={chain_id} which is not a known Tempo or \
+                 local-dev network; refusing to sign. Pass --allow-custom-endpoints \
+                 to override."
+            ),
+        });
+    }
+    if !is_allowed_fee_token(chain_id, &prep.token_address) {
+        return Err(CmdError::Validation {
+            code: "fee_token_not_allowed".into(),
+            message: format!(
+                "server returned token_address {} which is not on the PathUSD \
+                 allowlist for chain_id={chain_id}. Refusing to sign — this would \
+                 redirect your fee transfer to an arbitrary ERC-20 contract.",
+                prep.token_address
+            ),
+        });
+    }
+
+    // Audit line — always emitted to stderr so a CI log captures the exact
+    // recipient+token+chain we committed funds to. Not a prompt: CLI stays
+    // non-interactive.
+    eprintln!(
+        "taskfast: signing submission-fee transfer — token={} chain_id={} rpc={}",
+        prep.token_address, chain_id, rpc_url
+    );
+
+    // F9: serialize nonce-consuming sign+broadcast per wallet. `_guard`
+    // holds the exclusive file lock from here until function return,
+    // which scope-covers both eth_getTransactionCount (inside
+    // sign_and_broadcast_erc20_transfer) and eth_sendRawTransaction.
+    // Locked on the keystore path (stripping the optional `file:` prefix
+    // that `taskfast init` writes) so two processes sharing a keystore
+    // can't race, while distinct wallets proceed in parallel.
+    let _guard = if let Some(ref raw) = keystore_ref {
+        let path_str = raw.strip_prefix("file:").unwrap_or(raw);
+        Some(crate::wallet_lock::acquire(std::path::Path::new(path_str))?)
+    } else {
+        None
+    };
+
     let tx_hash =
         sign_and_broadcast_erc20_transfer(&rpc, &signer, token_address, Bytes::from(calldata))
             .await
@@ -372,4 +484,67 @@ fn parse_iso_opt(
 fn decode_0x_bytes(s: &str) -> Result<Vec<u8>, String> {
     let stripped = s.strip_prefix("0x").unwrap_or(s);
     hex::decode(stripped).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_rpc_url_accepts_well_known_mainnet() {
+        validate_rpc_url(TEMPO_MAINNET_RPC, Network::Mainnet, false).expect("canonical ok");
+    }
+
+    #[test]
+    fn validate_rpc_url_accepts_well_known_testnet() {
+        validate_rpc_url(TEMPO_TESTNET_RPC, Network::Testnet, false).expect("canonical ok");
+    }
+
+    #[test]
+    fn validate_rpc_url_tolerates_trailing_slash() {
+        validate_rpc_url("https://rpc.tempo.xyz/", Network::Mainnet, false).expect("slash ok");
+    }
+
+    #[test]
+    fn validate_rpc_url_rejects_custom_without_opt_in() {
+        let err = validate_rpc_url("https://evil.example", Network::Mainnet, false)
+            .expect_err("custom RPC must be refused");
+        match err {
+            CmdError::Usage(msg) => {
+                assert!(msg.contains("evil.example"), "msg: {msg}");
+                assert!(msg.contains("--allow-custom-endpoints"), "msg: {msg}");
+            }
+            other => panic!("expected Usage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_rpc_url_accepts_custom_with_opt_in() {
+        validate_rpc_url("https://my-node.example", Network::Testnet, true)
+            .expect("opt-in bypasses the guard");
+    }
+
+    #[test]
+    fn validate_rpc_url_rejects_plain_http_on_mainnet() {
+        let err = validate_rpc_url("http://my-node.example", Network::Mainnet, true)
+            .expect_err("plain-http on mainnet is always refused (except loopback)");
+        assert!(matches!(err, CmdError::Usage(msg) if msg.contains("plain-HTTP")));
+    }
+
+    #[test]
+    fn validate_rpc_url_allows_plain_http_loopback_on_mainnet() {
+        // anvil / hardhat / local forks are fine even on --network=mainnet.
+        validate_rpc_url("http://127.0.0.1:8545", Network::Mainnet, true)
+            .expect("loopback bypasses mainnet-HTTPS check");
+        validate_rpc_url("http://localhost:8545", Network::Mainnet, true)
+            .expect("loopback bypasses mainnet-HTTPS check");
+    }
+
+    #[test]
+    fn validate_rpc_url_allows_plain_http_on_testnet() {
+        // Testnet is lower risk; the custom-endpoint guard is still active
+        // but HTTP specifically isn't enforced.
+        validate_rpc_url("http://my-testnet.example", Network::Testnet, true)
+            .expect("testnet does not enforce HTTPS");
+    }
 }

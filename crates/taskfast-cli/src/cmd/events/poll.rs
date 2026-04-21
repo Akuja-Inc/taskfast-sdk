@@ -24,7 +24,7 @@ use serde_json::json;
 use super::super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
-use taskfast_agent::events::list_events_page;
+use taskfast_agent::events::list_events_page_tolerant;
 
 #[derive(Debug, Parser)]
 pub struct PollArgs {
@@ -45,7 +45,7 @@ pub async fn run(ctx: &Ctx, args: PollArgs) -> CmdResult {
     let effective_cursor = cursor_state.effective_cursor();
 
     let client = ctx.client()?;
-    let page = list_events_page(&client, effective_cursor, Some(args.limit))
+    let page = list_events_page_tolerant(&client, effective_cursor, Some(args.limit))
         .await
         .map_err(CmdError::from)?;
 
@@ -55,11 +55,27 @@ pub async fn run(ctx: &Ctx, args: PollArgs) -> CmdResult {
         }
     }
 
+    for item in &page.unparseable {
+        tracing::warn!(
+            target: "taskfast::events",
+            raw = %item.raw,
+            error = %item.error,
+            "unparseable event surfaced via tolerant decode"
+        );
+    }
+
+    let unparseable: Vec<serde_json::Value> = page
+        .unparseable
+        .iter()
+        .map(|u| json!({ "raw": u.raw, "error": u.error }))
+        .collect();
+
     Ok(Envelope::success(
         ctx.environment,
         ctx.dry_run,
         json!({
-            "events": page.data,
+            "events": page.events,
+            "unparseable": unparseable,
             "meta": page.meta,
         }),
     ))

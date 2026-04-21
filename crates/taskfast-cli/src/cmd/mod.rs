@@ -18,7 +18,7 @@ use thiserror::Error;
 use crate::config::{Config, ConfigError};
 use crate::envelope::Envelope;
 use crate::exit::ExitCode;
-use crate::Environment;
+use crate::{is_well_known_api_base, Environment};
 
 use taskfast_agent::keystore::KeystoreError;
 use taskfast_chains::tempo::SigningError;
@@ -42,6 +42,7 @@ pub mod platform;
 pub mod post;
 pub mod review;
 pub mod settle;
+pub mod skills;
 pub mod task;
 pub mod wallet;
 pub mod wallet_args;
@@ -87,6 +88,12 @@ pub struct Ctx {
     pub receipt_timeout: Option<Duration>,
     pub dry_run: bool,
     pub quiet: bool,
+    /// F2 opt-in: allow a custom `api_base` or `tempo_rpc_url` that isn't
+    /// one of the well-known TaskFast defaults. Plumbed through to
+    /// subcommands (notably `post`) that construct their own network
+    /// clients outside the [`TaskFastClient`] covered by the Ctx-level
+    /// guard.
+    pub allow_custom_endpoints: bool,
 }
 
 /// Default environment when neither a flag nor the config file pins one.
@@ -107,6 +114,7 @@ impl Default for Ctx {
             receipt_timeout: None,
             dry_run: false,
             quiet: false,
+            allow_custom_endpoints: false,
         }
     }
 }
@@ -130,16 +138,20 @@ impl Ctx {
         cli_config_path: Option<PathBuf>,
         cli_dry_run: bool,
         cli_quiet: bool,
+        cli_allow_custom_endpoints: bool,
         cfg: &Config,
     ) -> Result<Self, CmdError> {
         let approval_horizon =
             parse_duration_cfg(cfg.approval_horizon.as_deref(), "approval_horizon")?;
         let receipt_timeout =
             parse_duration_cfg(cfg.receipt_timeout.as_deref(), "receipt_timeout")?;
+        let environment = cli_env.or(cfg.environment).unwrap_or(DEFAULT_ENVIRONMENT);
+        let api_base = cli_api_base.or_else(|| cfg.api_base.clone());
+        enforce_endpoint_guard(environment, api_base.as_deref(), cli_allow_custom_endpoints)?;
         Ok(Self {
             api_key: cli_api_key.or_else(|| cfg.api_key.clone()),
-            environment: cli_env.or(cfg.environment).unwrap_or(DEFAULT_ENVIRONMENT),
-            api_base: cli_api_base.or_else(|| cfg.api_base.clone()),
+            environment,
+            api_base,
             config_path: cli_config_path.unwrap_or_else(Config::default_path),
             wallet_address: cfg.wallet_address.clone(),
             keystore_path: cfg.keystore_path.clone(),
@@ -149,7 +161,36 @@ impl Ctx {
             receipt_timeout,
             dry_run: cli_dry_run,
             quiet: cli_quiet,
+            allow_custom_endpoints: cli_allow_custom_endpoints,
         })
+    }
+
+    /// F15: gather non-fatal security warnings derived from the effective
+    /// runtime state. Computed at emit time (not at construction) so
+    /// subcommand-induced signals can be folded in here if needed later.
+    /// Always safe to call — never allocates for a healthy run.
+    pub fn security_warnings(&self) -> Vec<crate::envelope::SecurityWarning> {
+        use crate::envelope::SecurityWarning;
+        let mut out = Vec::new();
+        if self.allow_custom_endpoints {
+            let detail = self.api_base.as_deref().unwrap_or("(env default)");
+            out.push(SecurityWarning {
+                code: "custom_endpoints_allowed",
+                message: format!(
+                    "--allow-custom-endpoints is in effect; api_base={detail}. \
+                     Traffic will go to a non-well-known host."
+                ),
+            });
+        }
+        if std::env::var("TASKFAST_WALLET_PASSWORD").is_ok_and(|v| !v.is_empty()) {
+            out.push(SecurityWarning {
+                code: "password_env_var",
+                message: "TASKFAST_WALLET_PASSWORD is readable via /proc/<pid>/environ; \
+                         prefer --wallet-password-file."
+                    .into(),
+            });
+        }
+        out
     }
 
     /// Resolved API base URL: override if set, else env default.
@@ -206,6 +247,38 @@ impl Ctx {
         }
         Ok(())
     }
+}
+
+/// F2 endpoint-override guard. Refuses to run when the effective
+/// `api_base` deviates from [`WELL_KNOWN_API_BASES`][crate::WELL_KNOWN_API_BASES]
+/// unless the caller explicitly opts in via `--allow-custom-endpoints`
+/// (or env `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`) or the environment is
+/// [`Environment::Local`] (local dev is already network-sandboxed).
+///
+/// Threat: a malicious cloned repo ships `.taskfast/config.json` with an
+/// attacker `api_base`; `taskfast` loads config from CWD, so the next
+/// invocation silently exfiltrates the PAT (carried in `X-API-Key`) to
+/// the attacker host. The guard turns that silent redirect into a loud
+/// `Usage` error before any request fires.
+fn enforce_endpoint_guard(
+    environment: Environment,
+    api_base: Option<&str>,
+    allow_custom: bool,
+) -> Result<(), CmdError> {
+    if allow_custom || environment == Environment::Local {
+        return Ok(());
+    }
+    let Some(url) = api_base else { return Ok(()) };
+    if is_well_known_api_base(url) {
+        return Ok(());
+    }
+    Err(CmdError::Usage(format!(
+        "refusing to use custom api_base {url:?} for env {env}: \
+         pass --allow-custom-endpoints (or set TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1) \
+         to override. This guard blocks a malicious .taskfast/config.json in \
+         a cloned repo from silently redirecting API traffic.",
+        env = environment.as_str()
+    )))
 }
 
 /// Parse a human-readable duration string from the config file,
@@ -528,7 +601,8 @@ mod tests {
             log_format: Some("json".into()),
             ..Config::default()
         };
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, &cfg).expect("valid cfg");
+        let ctx =
+            Ctx::from_parts(None, None, None, None, false, false, false, &cfg).expect("valid cfg");
         assert_eq!(ctx.wallet_address.as_deref(), Some("0xfeed"));
         assert_eq!(
             ctx.keystore_path.as_deref(),
@@ -544,7 +618,8 @@ mod tests {
             approval_horizon: Some("7d".into()),
             ..Config::default()
         };
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, &cfg).expect("parse 7d");
+        let ctx =
+            Ctx::from_parts(None, None, None, None, false, false, false, &cfg).expect("parse 7d");
         assert_eq!(ctx.approval_horizon, Some(Duration::from_hours(24 * 7)));
     }
 
@@ -554,7 +629,8 @@ mod tests {
             receipt_timeout: Some("3min".into()),
             ..Config::default()
         };
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, &cfg).expect("parse 3min");
+        let ctx =
+            Ctx::from_parts(None, None, None, None, false, false, false, &cfg).expect("parse 3min");
         assert_eq!(ctx.receipt_timeout, Some(Duration::from_mins(3)));
     }
 
@@ -564,7 +640,7 @@ mod tests {
             approval_horizon: Some("7xyz".into()),
             ..Config::default()
         };
-        let err = Ctx::from_parts(None, None, None, None, false, false, &cfg)
+        let err = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
             .err()
             .expect("malformed config must fail at startup");
         match err {
@@ -582,7 +658,7 @@ mod tests {
             receipt_timeout: Some("nope".into()),
             ..Config::default()
         };
-        let err = Ctx::from_parts(None, None, None, None, false, false, &cfg)
+        let err = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
             .err()
             .expect("malformed timeout = startup error");
         assert!(matches!(err, CmdError::Usage(msg) if msg.contains("receipt_timeout")));
@@ -590,8 +666,17 @@ mod tests {
 
     #[test]
     fn from_parts_duration_fields_none_when_config_absent() {
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, &Config::default())
-            .expect("default cfg is valid");
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            &Config::default(),
+        )
+        .expect("default cfg is valid");
         assert!(ctx.approval_horizon.is_none());
         assert!(ctx.receipt_timeout.is_none());
     }
@@ -708,6 +793,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             &cfg,
         )
         .expect("valid cfg");
@@ -723,7 +809,10 @@ mod tests {
             Some(Environment::Staging),
             Some("http://cfg"),
         );
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, &cfg).expect("valid cfg");
+        // allow_custom=true because "http://cfg" is a test fixture, not a
+        // well-known endpoint — the F2 guard would otherwise refuse it.
+        let ctx =
+            Ctx::from_parts(None, None, None, None, false, false, true, &cfg).expect("valid cfg");
         assert_eq!(ctx.api_key.as_deref(), Some("cfg_key"));
         assert_eq!(ctx.environment, Environment::Staging);
         assert_eq!(ctx.api_base.as_deref(), Some("http://cfg"));
@@ -731,8 +820,17 @@ mod tests {
 
     #[test]
     fn from_parts_defaults_when_nothing_set() {
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, &Config::default())
-            .expect("default cfg is valid");
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            &Config::default(),
+        )
+        .expect("default cfg is valid");
         assert!(ctx.api_key.is_none());
         assert_eq!(ctx.environment, DEFAULT_ENVIRONMENT);
         assert!(ctx.api_base.is_none());
@@ -756,6 +854,7 @@ mod tests {
             None,
             false,
             false,
+            true,
             &cfg,
         )
         .expect("valid cfg");
@@ -765,10 +864,94 @@ mod tests {
     }
 
     #[test]
+    fn from_parts_rejects_custom_api_base_for_non_local_env() {
+        // Simulate a malicious .taskfast/config.json: env=Prod, api_base
+        // points at attacker host. Guard must refuse before any request.
+        let cfg = cfg_with(
+            Some("stolen_pat"),
+            Some(Environment::Prod),
+            Some("https://evil.example"),
+        );
+        let err = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
+            .err()
+            .expect("custom api_base on prod must be refused");
+        match err {
+            CmdError::Usage(msg) => {
+                assert!(msg.contains("evil.example"), "msg: {msg}");
+                assert!(msg.contains("--allow-custom-endpoints"), "msg: {msg}");
+            }
+            other => panic!("expected Usage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn from_parts_allows_custom_api_base_when_opt_in_flag_set() {
+        let cfg = cfg_with(
+            Some("k"),
+            Some(Environment::Prod),
+            Some("https://evil.example"),
+        );
+        let ctx = Ctx::from_parts(None, None, None, None, false, false, true, &cfg)
+            .expect("--allow-custom-endpoints must bypass the guard");
+        assert_eq!(ctx.api_base.as_deref(), Some("https://evil.example"));
+    }
+
+    #[test]
+    fn from_parts_allows_custom_api_base_for_local_env() {
+        // Local dev is sandboxed — no guard penalty.
+        let cfg = cfg_with(
+            Some("k"),
+            Some(Environment::Local),
+            Some("http://127.0.0.1:4001"),
+        );
+        let ctx = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
+            .expect("local env bypasses guard");
+        assert_eq!(ctx.api_base.as_deref(), Some("http://127.0.0.1:4001"));
+    }
+
+    #[test]
+    fn from_parts_accepts_well_known_api_base_without_opt_in() {
+        let cfg = cfg_with(
+            Some("k"),
+            Some(Environment::Prod),
+            Some("https://api.taskfast.app"),
+        );
+        let ctx = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
+            .expect("well-known api_base passes without --allow-custom-endpoints");
+        assert_eq!(ctx.api_base.as_deref(), Some("https://api.taskfast.app"));
+    }
+
+    #[test]
+    fn from_parts_guard_ignores_missing_api_base() {
+        // No override ⇒ we use the env default ⇒ nothing to guard against.
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            &Config::default(),
+        )
+        .expect("no api_base = no guard");
+        assert!(ctx.api_base.is_none());
+    }
+
+    #[test]
     fn from_parts_dry_run_and_quiet_are_invocation_scoped() {
         // These never come from config, only from the CLI.
-        let ctx = Ctx::from_parts(None, None, None, None, true, true, &Config::default())
-            .expect("default cfg is valid");
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            None,
+            None,
+            true,
+            true,
+            false,
+            &Config::default(),
+        )
+        .expect("default cfg is valid");
         assert!(ctx.dry_run);
         assert!(ctx.quiet);
     }

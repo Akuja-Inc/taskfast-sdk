@@ -31,6 +31,23 @@ pub struct Envelope {
     pub data: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorPayload>,
+    /// F15: machine-readable non-fatal security signals. Always present
+    /// (possibly empty) so orchestrators can unconditionally `.jq`
+    /// `.security_warnings | length > 0` without needing a null check.
+    /// Populated by command code via [`Self::with_warnings`].
+    pub security_warnings: Vec<SecurityWarning>,
+}
+
+/// One non-fatal security observation surfaced on stderr + envelope.
+///
+/// `code` is a stable identifier orchestrators can gate on (e.g.
+/// `"custom_api_base"`, `"custom_tempo_rpc"`, `"password_env_var"`);
+/// `message` is the human-readable detail. Kept flat rather than nested
+/// so a JSON consumer can key on `.code` directly.
+#[derive(Debug, Clone, Serialize)]
+pub struct SecurityWarning {
+    pub code: &'static str,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +68,7 @@ impl Envelope {
             dry_run,
             data: Some(data),
             error: None,
+            security_warnings: Vec::new(),
         }
     }
 
@@ -65,7 +83,16 @@ impl Envelope {
                 message: err.to_string(),
                 retry_after_seconds: err.retry_after().map(|d| d.as_secs()),
             }),
+            security_warnings: Vec::new(),
         }
+    }
+
+    /// Attach non-fatal security warnings to this envelope. Idempotent —
+    /// appends to whatever is already set; callers can accumulate across
+    /// the request pipeline.
+    pub fn with_warnings(mut self, warnings: Vec<SecurityWarning>) -> Self {
+        self.security_warnings.extend(warnings);
+        self
     }
 
     pub fn emit(&self) {
@@ -93,6 +120,27 @@ mod tests {
         assert_eq!(v["dry_run"], false);
         assert_eq!(v["data"]["agent_id"], "ag_1");
         assert!(v.get("error").is_none(), "error must be omitted on success");
+        // F15: security_warnings is always present (possibly empty).
+        assert_eq!(
+            v["security_warnings"].as_array().map(Vec::len),
+            Some(0),
+            "security_warnings must be an empty array on healthy success"
+        );
+    }
+
+    #[test]
+    fn with_warnings_populates_the_array() {
+        let env =
+            Envelope::success(Environment::Prod, false, serde_json::json!({})).with_warnings(vec![
+                SecurityWarning {
+                    code: "custom_api_base",
+                    message: "api_base overridden via --allow-custom-endpoints".into(),
+                },
+            ]);
+        let v = serde_json::to_value(&env).unwrap();
+        let arr = v["security_warnings"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["code"], "custom_api_base");
     }
 
     #[test]

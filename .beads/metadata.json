@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "tfcli",
+  "project_id": "f2a9ee08-0ecb-494b-9d49-ff072fbf1eec"
+}
