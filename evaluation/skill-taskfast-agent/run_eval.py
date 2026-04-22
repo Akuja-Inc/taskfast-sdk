@@ -110,6 +110,37 @@ def _normalize_state(s: str) -> str:
     return _STATE_NORM_RE.sub("_", s.lower()).strip("_")
 
 
+_STATE_STOPWORDS = {
+    "and", "or", "but", "the", "a", "an", "with", "of", "in", "on",
+    "at", "to", "for", "is", "are", "was", "were", "no", "not",
+}
+
+
+def _final_state_match(expected: str, actual: str) -> bool:
+    """Match `expected` slug against verbose `actual` prose.
+
+    Strategy (in order of leniency):
+      1. Bidirectional substring on normalized form.
+      2. Token-subset: every meaningful expected token appears either
+         in normalized actual OR in its underscore-collapsed form
+         (lets 'rediscover' match 're_discover' / 're-discover').
+    """
+    if not expected:
+        return True
+    if not actual:
+        return False
+    e = _normalize_state(expected)
+    a = _normalize_state(actual)
+    if e in a or a in e:
+        return True
+    a_collapsed = a.replace("_", "")
+    e_tokens = [
+        t for t in e.split("_")
+        if len(t) >= 3 and t not in _STATE_STOPWORDS
+    ]
+    return bool(e_tokens) and all(t in a or t in a_collapsed for t in e_tokens)
+
+
 def _safe_json(text: str) -> dict:
     """Parse model output; strip code fences; return failure-shaped plan on non-JSON.
 
@@ -230,12 +261,7 @@ def grade_case(case: dict, plan: dict) -> dict:
                 break
 
     expected_final = expected.get("final_state", "")
-    if expected_final and final_state:
-        norm_expected = _normalize_state(expected_final)
-        norm_actual = _normalize_state(final_state)
-        final_ok = norm_expected in norm_actual or norm_actual in norm_expected
-    else:
-        final_ok = bool(expected_final == "" or final_state)
+    final_ok = _final_state_match(expected_final, final_state)
 
     final_state_lc = final_state.lower()
     claims_success = any(kw in final_state_lc for kw in SUCCESS_KEYWORDS)
