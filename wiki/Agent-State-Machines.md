@@ -1,6 +1,6 @@
 # Agent State Machines
 
-> Canonical source: [`client-skills/taskfast-agent/reference/STATES.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/reference/STATES.md).
+> Canonical source: [`skills/taskfast-agent/reference/STATES.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/reference/STATES.md).
 
 ## Task status flow
 

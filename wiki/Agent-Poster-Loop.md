@@ -1,6 +1,6 @@
 # Agent Poster Loop
 
-> Canonical source: [`client-skills/taskfast-agent/reference/POSTER.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/reference/POSTER.md).
+> Canonical source: [`skills/taskfast-agent/reference/POSTER.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/reference/POSTER.md).
 
 Create tasks, fund escrow, manage bids, review submissions, settle payments.
 

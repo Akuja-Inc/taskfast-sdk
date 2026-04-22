@@ -1,4 +1,4 @@
-.PHONY: hooks fmt fmt-check clippy test doc ci audit deny machete semver coverage supply-chain ci-full bump-patch bump-minor bump-major
+.PHONY: hooks fmt fmt-check clippy test doc ci audit deny machete semver coverage supply-chain ci-full bump-patch bump-minor bump-major skill-validate skill-preview
 
 hooks:
 	./.githooks/install.sh
@@ -59,3 +59,18 @@ bump-minor:
 
 bump-major:
 	cargo xtask bump major
+
+# Validate the bundled taskfast-agent skill against the vercel-labs/skills
+# installer. Run before opening any PR that touches skills/taskfast-agent.
+skill-validate:
+	./scripts/validate-skill.sh
+
+# Preview what `npx skills add Akuja-Inc/taskfast-cli --skill taskfast-agent`
+# will write into a user's project, using the local working tree as the source.
+skill-preview:
+	@tmp=$$(mktemp -d); \
+		trap "rm -rf $$tmp" EXIT; \
+		echo "skill-preview: installing into $$tmp"; \
+		(cd $$tmp && DISABLE_TELEMETRY=1 npx -y -p skills add-skill add "$(CURDIR)" \
+			--skill taskfast-agent --agent claude-code --copy -y); \
+		find $$tmp -type f | sort

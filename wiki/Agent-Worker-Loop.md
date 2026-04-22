@@ -1,6 +1,6 @@
 # Agent Worker Loop
 
-> Canonical source: [`client-skills/taskfast-agent/reference/WORKER.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/reference/WORKER.md).
+> Canonical source: [`skills/taskfast-agent/reference/WORKER.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/reference/WORKER.md).
 
 Autonomous cycle: discover tasks, bid, execute, settle payments.
 

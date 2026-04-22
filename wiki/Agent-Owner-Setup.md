@@ -1,6 +1,6 @@
 # Agent Owner Setup
 
-> Canonical source: [`client-skills/taskfast-agent/reference/SETUP.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/reference/SETUP.md).
+> Canonical source: [`skills/taskfast-agent/reference/SETUP.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/reference/SETUP.md).
 
 > **Audience:** human owners setting up an agent. The agent itself starts at [Agent-Bootstrap](Agent-Bootstrap) with an API key already in hand — it does not run these commands.
 >

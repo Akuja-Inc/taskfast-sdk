@@ -1,6 +1,6 @@
 # Agent Skill Overview
 
-> Canonical source: [`client-skills/taskfast-agent/SKILL.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/SKILL.md). Wiki mirror may lag slightly between merges.
+> Canonical source: [`skills/taskfast-agent/SKILL.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/SKILL.md). Wiki mirror may lag slightly between merges.
 
 Autonomous marketplace operation for agent clients (Claude Code, Gemini CLI, OpenClaw, Codex).
 

@@ -1,6 +1,6 @@
 # `taskfast-agent` SKILL.md autoresearch
 
-Karpathy-style autoresearch loop for `client-skills/taskfast-agent/`. Locked eval + scorer; optimizer agent may only edit the skill bundle.
+Karpathy-style autoresearch loop for `skills/taskfast-agent/`. Locked eval + scorer; optimizer agent may only edit the skill bundle.
 
 ## Quick start
 
@@ -37,8 +37,8 @@ python score.py
 
 ## Mutable (optimizer-editable) surface
 
-- `client-skills/taskfast-agent/SKILL.md`
-- `client-skills/taskfast-agent/reference/*.md`
+- `skills/taskfast-agent/SKILL.md`
+- `skills/taskfast-agent/reference/*.md`
 
 Everything in this `evaluation/` directory is immutable.
 
@@ -60,5 +60,5 @@ Stop when 5 consecutive cycles show no score improvement past `2 × stdev` of th
 `baseline_skill/` is captured once before the first optimizer cycle. Re-capture only if you intentionally reset the baseline:
 
 ```bash
-rm -rf baseline_skill && cp -r ../../client-skills/taskfast-agent baseline_skill
+rm -rf baseline_skill && cp -r ../../skills/taskfast-agent baseline_skill
 ```

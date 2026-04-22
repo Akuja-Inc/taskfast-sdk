@@ -28,7 +28,7 @@ RUN set -eux; \
     rm -rf /tmp/tf.tar.xz "/tmp/taskfast-cli-${TRIPLE}"; \
     /usr/local/bin/taskfast --version
 
-COPY client-skills/taskfast-agent /opt/taskfast-skills
+COPY skills/taskfast-agent /opt/taskfast-skills
 
 # F10: drop root. The CLI needs no privileged capability at runtime —
 # it reads a keystore file, writes `.taskfast/`, and talks HTTPS. A
