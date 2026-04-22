@@ -86,3 +86,31 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: crate-ci/typos@cf5f1c29a8ac336af8568821ec41919923b05a83 # v1.45.1
+
+  machete:
+    # Detects unused workspace dependencies. Add ignores via
+    # [package.metadata.cargo-machete] ignored = [...] in the offending
+    # Cargo.toml when a dep is used only via macro re-export.
+    name: cargo-machete
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install cargo-machete --locked
+      - run: cargo machete
+
+  semver:
+    # Detects breaking public-API changes in published crates vs. the
+    # last published version on crates.io. Only taskfast-cli is
+    # published; the others are `publish = false`. On PRs only — baseline
+    # would be the same commit on push to main.
+    name: cargo-semver-checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install cargo-semver-checks --locked
+      - run: cargo semver-checks --package taskfast-cli

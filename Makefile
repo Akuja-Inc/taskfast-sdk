@@ -1,4 +1,4 @@
-.PHONY: hooks fmt fmt-check clippy test doc ci audit deny supply-chain ci-full bump-patch bump-minor bump-major
+.PHONY: hooks fmt fmt-check clippy test doc ci audit deny machete semver supply-chain ci-full bump-patch bump-minor bump-major
 
 hooks:
 	./.githooks/install.sh
@@ -27,6 +27,15 @@ audit:
 # Requires: cargo install cargo-deny
 deny:
 	cargo deny check
+
+# Detect unused workspace dependencies. Requires: cargo install cargo-machete
+machete:
+	cargo machete
+
+# Detect breaking public-API changes vs. last crates.io release.
+# Requires: cargo install cargo-semver-checks
+semver:
+	cargo semver-checks --package taskfast-cli
 
 supply-chain: audit deny
 

@@ -1,0 +1,12 @@
+# Default owner for everything in the repo.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+*       @joemocha
+
+# Release + CI infrastructure — guard extra-carefully.
+/.github/workflows/release.yml  @joemocha
+/dist-workspace.toml            @joemocha
+/deny.toml                      @joemocha
+/rust-toolchain.toml            @joemocha
+
+# Security policy.
+/SECURITY.md    @joemocha
