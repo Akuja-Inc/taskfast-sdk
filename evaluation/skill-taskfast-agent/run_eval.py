@@ -98,6 +98,16 @@ def load_cases() -> list[dict]:
 
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+_STATE_NORM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_state(s: str) -> str:
+    """Lowercase, collapse non-alphanumeric runs to underscore.
+
+    Lets grader treat 'payment disbursed', 'payment_disbursed', and
+    'Payment-Disbursed' as the same terminal state.
+    """
+    return _STATE_NORM_RE.sub("_", s.lower()).strip("_")
 
 
 def _safe_json(text: str) -> dict:
@@ -142,7 +152,7 @@ def call_model(system: str, user: str, model: str, endpoint: str) -> dict:
             model=model,
             system=system,
             messages=[{"role": "user", "content": user}],
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.2,
         )
         text = resp.content[0].text if resp.content else "{}"
@@ -221,10 +231,9 @@ def grade_case(case: dict, plan: dict) -> dict:
 
     expected_final = expected.get("final_state", "")
     if expected_final and final_state:
-        if expected_final not in final_state and final_state not in expected_final:
-            final_ok = False
-        else:
-            final_ok = True
+        norm_expected = _normalize_state(expected_final)
+        norm_actual = _normalize_state(final_state)
+        final_ok = norm_expected in norm_actual or norm_actual in norm_expected
     else:
         final_ok = bool(expected_final == "" or final_state)
 
