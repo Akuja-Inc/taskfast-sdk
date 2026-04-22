@@ -57,6 +57,38 @@ fn base_args(wallet_address: Option<String>, keystore: Option<String>) -> Args {
     }
 }
 
+/// Mount `GET /api/config/network` so the runtime path's fetch of the
+/// deployment's proxy URL succeeds. Returns the testnet rpc_url that will
+/// be picked (i.e. `<api_base>/api/rpc/testnet`) so callers can point the
+/// RPC proxy mocks at it if they need to.
+async fn mount_network_config_mock(server: &MockServer) -> String {
+    let uri = server.uri();
+    let payload = json!({
+        "networks": {
+            "testnet": {
+                "chain_id": 42431,
+                "rpc_url": format!("{uri}/api/rpc/testnet"),
+                "wss_url": "wss://testnet.example.invalid",
+                "explorer_url": "https://explorer-testnet.example.invalid",
+                "default_stablecoin": "PathUSD"
+            },
+            "mainnet": {
+                "chain_id": 4217,
+                "rpc_url": format!("{uri}/api/rpc/mainnet"),
+                "wss_url": "wss://mainnet.example.invalid",
+                "explorer_url": "https://explorer.example.invalid",
+                "default_stablecoin": null
+            }
+        }
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/config/network"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+        .mount(server)
+        .await;
+    format!("{uri}/api/rpc/testnet")
+}
+
 /// Mount all four JSON-RPC methods the sign-and-broadcast path needs.
 async fn mount_rpc_mocks(server: &MockServer, tx_hash_hex: &str) {
     let rpc_ok = |result: Value| {
@@ -110,6 +142,8 @@ async fn post_happy_path_end_to_end() {
     taskfast_agent::keystore::save_signer(&signer, &keystore_path, "pw").expect("keystore");
     let password_path = tmp.path().join("pw");
     std::fs::write(&password_path, b"pw").unwrap();
+
+    let _ = mount_network_config_mock(&api_server).await;
 
     let draft_id = uuid::Uuid::new_v4();
     let task_id = uuid::Uuid::new_v4();
@@ -188,7 +222,16 @@ async fn post_dry_run_short_circuits_without_any_http() {
     assert_eq!(v["data"]["draft_id"], Value::Null);
     assert_eq!(v["data"]["title"], "test task");
     assert_eq!(v["data"]["assignment_type"], "open");
-    assert!(v["data"]["rpc_url"].as_str().unwrap().contains("tempo.xyz"));
+    // Dry-run predicts the proxy URL locally (no HTTP); shape is
+    // `{api_base}/api/rpc/{network}`.
+    assert!(
+        v["data"]["rpc_url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/api/rpc/testnet"),
+        "dry-run rpc_url: {}",
+        v["data"]["rpc_url"]
+    );
 }
 
 #[tokio::test]
@@ -238,6 +281,7 @@ async fn post_direct_without_agent_id_is_usage_error() {
 #[tokio::test]
 async fn post_prepare_401_surfaces_as_auth_error() {
     let api_server = MockServer::start().await;
+    let _ = mount_network_config_mock(&api_server).await;
     Mock::given(method("POST"))
         .and(path("/api/task_drafts"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
@@ -263,6 +307,7 @@ async fn post_prepare_401_surfaces_as_auth_error() {
 #[tokio::test]
 async fn post_keystore_address_mismatch_is_usage_error() {
     let api_server = MockServer::start().await;
+    let _ = mount_network_config_mock(&api_server).await;
 
     // Server returns a happy prepare; our signer won't match --wallet-address.
     let draft_id = uuid::Uuid::new_v4();
@@ -310,6 +355,7 @@ async fn post_rejects_non_allowlisted_fee_token() {
     // server named.
     let api_server = MockServer::start().await;
     let rpc_server = MockServer::start().await;
+    let _ = mount_network_config_mock(&api_server).await;
 
     let draft_id = uuid::Uuid::new_v4();
     let calldata_hex = format!("0x{}", "00".repeat(4 + 64));
@@ -377,6 +423,7 @@ async fn post_missing_api_key_errors_before_any_http() {
 async fn post_forwards_completion_criteria() {
     let api_server = MockServer::start().await;
     let rpc_server = MockServer::start().await;
+    let _ = mount_network_config_mock(&api_server).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr = format!("{:#x}", signer.address());

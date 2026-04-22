@@ -1,0 +1,871 @@
+{
+  "run_id": "1776871714-121b8a",
+  "model_agent": "glm-5-turbo",
+  "model_optimizer": "glm-5.1",
+  "endpoint": "anthropic",
+  "cases": [
+    {
+      "id": "golden_worker_e2e",
+      "category": "golden",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast discover",
+            "args": {
+              "--status": "open",
+              "--capability": "data-analysis",
+              "--limit": 20
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast bid create",
+            "args": {
+              "task_id": "tsk_01",
+              "--price": "80.00",
+              "--pitch": "Experienced data analyst ready to deliver thorough analysis"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast bid list",
+            "args": {
+              "--status": "pending"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast task claim",
+            "args": {
+              "task_id": "tsk_01"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get",
+            "args": {
+              "task_id": "tsk_01"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast task submit",
+            "args": {
+              "task_id": "tsk_01",
+              "--summary": "Completed data analysis with outlier detection and trend summary",
+              "--artifact": "./deliverable.csv"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get",
+            "args": {
+              "task_id": "tsk_01"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast artifact list",
+            "args": {
+              "task_id": "tsk_01"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast payment get",
+            "args": {
+              "task_id": "tsk_01"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast review create",
+            "args": {
+              "task_id": "tsk_01",
+              "--reviewee-id": "$POSTER_ID",
+              "--rating": 5,
+              "--comment": "Clear requirements, prompt payment"
+            },
+            "on_error": "skip"
+          }
+        ],
+        "final_state": "payment_disbursed",
+        "reasoning": "Golden worker path: preflight confirms active/ready, discover finds a data-analysis task, bid is placed and immediately accepted (injected event), claim is verified as in_progress, submission is verified as under_review via task get + artifact list, then payment_disbursed event arrives confirming $72 net payout (after 10% fee on $80 bid), verified via payment get showing disbursed status with tx_hash. Review is attempted as final step."
+      }
+    },
+    {
+      "id": "golden_poster_e2e",
+      "category": "golden",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast post",
+            "args": {
+              "--title": "Analyze this CSV",
+              "--description": "Summarize outliers and trends from the provided dataset",
+              "--budget": "100.00",
+              "--capabilities": "data-analysis",
+              "--assignment-type": "open"
+            },
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task get",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task bids",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast bid accept",
+            "args": {
+              "bid_id": "bid_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task bids",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast escrow sign",
+            "args": {
+              "bid_id": "bid_02"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast task get",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast payment get",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task approve",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast payment get",
+            "args": {
+              "task_id": "tsk_02"
+            },
+            "on_error": "verify"
+          }
+        ],
+        "final_state": "settled",
+        "reasoning": "Golden poster end-to-end flow: pre-flight `taskfast me` confirms active status, then post the task and verify it reaches `open`. After discovering bids, accept bid_02 and verify it transitions to `accepted_pending_escrow` with the task in `payment_pending`. Sign escrow (idempotent, safe to retry) and verify task moves to `assigned` with payment in `held`/`pending_hold`. Once the worker submits and the task enters `under_review`, approve it and verify the task reaches `complete` with payment `disbursed` \u2014 the full poster lifecycle from creation to settlement."
+      }
+    },
+    {
+      "id": "golden_init_idempotent_rerun",
+      "category": "golden",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast init --api-key \"$TASKFAST_API_KEY\" --generate-wallet",
+            "args": {},
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "ready_to_work",
+        "reasoning": "The skill bundle states that `taskfast init` is idempotent \u2014 on re-run it re-validates the environment, re-registers the wallet (treating 409 `wallet_already_configured` as success), and rewrites `./.taskfast/config.json`. Since config and wallet already exist from a prior run, this call should succeed or return a benign 409. The follow-up `taskfast me` verifies the agent is active and `ready_to_work: true` before entering any loop."
+      }
+    },
+    {
+      "id": "edge_crash_restart_in_progress",
+      "category": "edge",
+      "passed": false,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 1,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": false,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task get tsk_03",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast artifact list tsk_03",
+            "args": {},
+            "on_error": "verify"
+          }
+        ],
+        "final_state": "resume_execute",
+        "reasoning": "Per the pre-flight checklist, every loop starts with `taskfast me` to confirm status is active and ready_to_work is true. Then, following the stateless restart recovery table, a task in `in_progress` status resumes at EXECUTE \u2014 the first action is `taskfast artifact list` to check what artifacts already exist before uploading anything new, avoiding duplicates per the dedup rules."
+      }
+    },
+    {
+      "id": "edge_paused_agent_401",
+      "category": "edge",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "stopped_agent_paused",
+        "reasoning": "The pre-flight `taskfast me` call returned a 401 unauthorized error. Per the skill bundle, persistent 401 errors indicate the agent has been paused or suspended \u2014 the agent cannot self-recover and must stop immediately, informing the caller that the human owner must reactivate via the TaskFast website."
+      }
+    },
+    {
+      "id": "edge_no_tasks_match",
+      "category": "edge",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast discover",
+            "args": {
+              "status": "open",
+              "limit": 20
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast discover",
+            "args": {
+              "status": "open",
+              "limit": 20
+            },
+            "on_error": "retry"
+          }
+        ],
+        "final_state": "wait_and_rediscover",
+        "reasoning": "Pre-flight confirms active and ready_to_work. First discover returns an empty list per the injected event. Per the skill bundle, when no tasks match capabilities the agent should wait 30\u201360s and re-discover. A second discover call is shown to represent the retry after waiting, which also returns empty, landing on the wait_and_rediscover terminal state. Persistently empty results may indicate capabilities are too narrow, but the agent does not self-correct capabilities \u2014 it reports the state for the orchestrator to decide."
+      }
+    },
+    {
+      "id": "edge_escrow_stuck_payment_pending",
+      "category": "edge",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 1,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task get tsk_04",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task bids tsk_04",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast escrow sign",
+            "args": {
+              "bid_id": "$BID_ID"
+            },
+            "on_error": "retry"
+          }
+        ],
+        "final_state": "assigned",
+        "reasoning": "The task has been stuck in payment_pending for 6 minutes, which exceeds the 5-minute threshold in the skill bundle. Since escrow_sign_attempted is false, the poster never ran the escrow sign step after accepting the bid. Per the edge case table and POSTER.md, the correct action is to run taskfast escrow sign (idempotent up to the finalize POST). First, pre-flight with taskfast me, then verify the task is still payment_pending and the bid is in accepted_pending_escrow state, then run escrow sign to progress the task to assigned."
+      }
+    },
+    {
+      "id": "edge_self_bidding_422",
+      "category": "edge",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast bid create tsk_05",
+            "args": {
+              "--price": "80.00",
+              "--pitch": "I can complete this task"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast bid list",
+            "args": {},
+            "on_error": "skip"
+          }
+        ],
+        "final_state": "skipped_self_task",
+        "reasoning": "Pre-flight confirms active status. The bid create call returns 422 self_bidding because the task's poster_owner_id matches this agent's owner. Per the skill bundle, self_bidding is not an error to retry \u2014 it should be skipped silently. The verify step via bid list confirms no bid was recorded, and the terminal state is skipped_self_task per the edge case table."
+      }
+    },
+    {
+      "id": "edge_rate_limited_429",
+      "category": "edge",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast bid list",
+            "args": {
+              "status": "pending"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast bid list",
+            "args": {
+              "status": "pending"
+            },
+            "on_error": "retry"
+          }
+        ],
+        "final_state": "success",
+        "reasoning": "Pre-flight check confirms agent is active and ready. First bid list call hits 429 rate limiting; per TROUBLESHOOTING.md, 429 is retryable with exponential backoff starting at 5s (matching retry_after header). Second attempt succeeds with an empty bid list, meaning no pending bids exist \u2014 the immediate call recovered successfully from the transient rate limit."
+      }
+    },
+    {
+      "id": "edge_webhook_unreachable",
+      "category": "edge",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast webhook test",
+            "args": {},
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast events poll",
+            "args": {
+              "--limit": 20
+            },
+            "on_error": "retry"
+          }
+        ],
+        "final_state": "polling_fallback",
+        "reasoning": "Pre-flight confirms agent is active and ready. The webhook test returns 502 webhook_delivery_failed, meaning the endpoint is unreachable. Per the edge case table and BOOT.md polling fallback section, the correct response is to stop retrying the webhook and switch to taskfast events poll for event delivery."
+      }
+    },
+    {
+      "id": "retry_transient_429_then_success",
+      "category": "retry",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast bid create tsk_06",
+            "args": {
+              "--price": "80.00",
+              "--pitch": "Experienced agent ready to deliver"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast bid list",
+            "args": {},
+            "on_error": "verify"
+          }
+        ],
+        "final_state": "bid_pending",
+        "reasoning": "Pre-flight confirms active status. First bid attempt hits 429 which is retryable per the rate-limit table (exponential backoff starting 5s for submission-class endpoints). Second attempt succeeds with bid_id bid_06 in pending status. Per verify-before-success rules, a follow-up read via bid list confirms the bid row exists with status pending before reporting success."
+      }
+    },
+    {
+      "id": "retry_503_exhausted",
+      "category": "retry",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task get tsk_07",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task submit tsk_07",
+            "args": {
+              "--summary": "Deliverable for review",
+              "--artifact": "./deliverable.csv"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast task submit tsk_07",
+            "args": {
+              "--summary": "Deliverable for review",
+              "--artifact": "./deliverable.csv"
+            },
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast task submit tsk_07",
+            "args": {
+              "--summary": "Deliverable for review",
+              "--artifact": "./deliverable.csv"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get tsk_07",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast artifact list tsk_07",
+            "args": {},
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "submission_uncertain_verified",
+        "reasoning": "Pre-flight confirms active status and in_progress task state. The submit call is in the task submission retry class (max 3 attempts, exponential backoff on 5xx). After three 503 errors exhaust retries, the skill mandates verify-before-success: read task status and artifact list to determine if any prior attempt landed despite the connection errors. Since the task remains in_progress and no artifacts are confirmed present, the submission outcome is uncertain \u2014 reported as submission_uncertain_verified per the terminal state table."
+      }
+    },
+    {
+      "id": "order_escrow_before_accept",
+      "category": "ordering",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast bid accept bid_08",
+            "args": {},
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task bids tsk_08",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task get tsk_08",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast escrow sign bid_08",
+            "args": {},
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast task get tsk_08",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast payment get tsk_08",
+            "args": {},
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "assigned",
+        "reasoning": "Pre-flight confirms active status. Bid accept must precede escrow sign per the two-phase deferred-escrow flow. After accept, verify bid reached accepted_pending_escrow and task reached payment_pending before proceeding. Escrow sign is idempotent up to finalize POST so retry is safe. Final verification confirms task is assigned and payment is held/pending_hold."
+      }
+    },
+    {
+      "id": "order_submit_before_claim",
+      "category": "ordering",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task claim tsk_09",
+            "args": {},
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get tsk_09",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast task submit tsk_09",
+            "args": {
+              "--summary": "Deliverable completed",
+              "--artifact": "./deliverable"
+            },
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast task get tsk_09",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast artifact list tsk_09",
+            "args": {},
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "under_review",
+        "reasoning": "The task is in 'assigned' status, which means the bid was accepted but the task has not yet been claimed. The worker loop requires claiming before executing and submitting. After claim, verify the task transitioned to 'in_progress' and is assigned to you, then submit with artifacts, and finally verify the task reached 'under_review' with artifacts present."
+      }
+    },
+    {
+      "id": "nonretryable_400_validation",
+      "category": "nonretryable",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast post",
+            "args": {
+              "title": "Analyze this CSV",
+              "budget": "100.00",
+              "capabilities": "data-analysis"
+            },
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "stopped_with_validation_error",
+        "reasoning": "Pre-flight confirms active status and readiness. The post call returns a 422 validation_error for a missing required field (description). Per the skill bundle rules, 4xx validation errors must not be self-corrected or retried \u2014 the agent stops and surfaces the error to the orchestrator, which decides what to fix."
+      }
+    },
+    {
+      "id": "dup_artifact_upload_after_timeout",
+      "category": "duplicate",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast artifact list tsk_10",
+            "args": {},
+            "on_error": "retry"
+          },
+          {
+            "cmd": "taskfast artifact upload tsk_10 ./deliverable.csv",
+            "args": {},
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast artifact list tsk_10",
+            "args": {},
+            "on_error": "retry"
+          }
+        ],
+        "final_state": "artifact_attached_no_dup",
+        "reasoning": "Per the skill bundle, artifact upload has no server-side dedupe guarantee \u2014 a timeout may have still persisted the file. The correct pattern is to list existing artifacts first, check if the file already exists (and delete the partial if so), then re-upload. Since no artifact ID is fabricated from the prior_state, the list call determines whether a duplicate exists before attempting the upload."
+      }
+    }
+  ]
+}

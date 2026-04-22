@@ -108,19 +108,23 @@ jobs:
       - run: cargo machete
 
   semver:
-    # Detects breaking public-API changes in published crates vs. the
-    # last published version on crates.io. Only taskfast-cli is
-    # published; the others are `publish = false`. On PRs only — baseline
-    # would be the same commit on push to main.
+    # Detects breaking public-API changes in taskfast-cli. Uses git
+    # baseline (PR base SHA) instead of crates.io — the crate is not
+    # yet published, so registry lookup fails. Switch to the default
+    # crates.io baseline after first publish.
     name: cargo-semver-checks
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: cargo install cargo-semver-checks --locked
-      - run: cargo semver-checks --package taskfast-cli
+      - env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: cargo semver-checks --package taskfast-cli --baseline-rev "$BASE_SHA"
 
   coverage:
     # Reports line coverage with llvm-cov. Artifact uploaded as
@@ -172,3 +176,76 @@ jobs:
             echo "::error::taskfast-client drifted from spec/openapi.yaml. Run: cargo xtask sync-spec"
             exit 1
           fi
+
+  notify-discord:
+    # Posts a single consolidated run result to Discord. Mirrors the
+    # pattern in docker.yml. Skipped for pull_request events to avoid
+    # spam — PR status is already visible in the GitHub checks UI.
+    name: Notify Discord
+    if: ${{ always() && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    needs:
+      - fmt
+      - clippy
+      - test
+      - doc
+      - audit
+      - deny
+      - typos
+      - machete
+      - semver
+      - coverage
+      - minimal-versions
+      - spec-drift
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      CI_RESULT: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}
+    steps:
+      - name: Compute run summary
+        id: summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          format_duration() {
+            local total_seconds=$1
+            local hours=$((total_seconds / 3600))
+            local minutes=$(((total_seconds % 3600) / 60))
+            local seconds=$((total_seconds % 60))
+            printf '%02dh %02dm %02ds' "$hours" "$minutes" "$seconds"
+          }
+
+          run_started_at=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.run_started_at')
+          start_epoch=$(date -d "$run_started_at" +%s)
+          now_epoch=$(date +%s)
+          duration=$(format_duration $((now_epoch - start_epoch)))
+
+          if [[ "$CI_RESULT" == "success" ]]; then
+            status="passed"
+            emoji="✅"
+          else
+            status="failed"
+            emoji="❌"
+          fi
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "emoji=$emoji" >> "$GITHUB_OUTPUT"
+          echo "duration=$duration" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Actions for Discord
+        if: ${{ env.DISCORD_WEBHOOK != '' }}
+        uses: Ilshidur/action-discord@0.4.0
+        env:
+          DISCORD_WEBHOOK: ${{ env.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ${{ steps.summary.outputs.emoji }} CI ${{ steps.summary.outputs.status }} for `${{ github.repository }}`
+            `Branch  :` [${{ github.ref_name }}](https://github.com/${{ github.repository }}/tree/${{ github.ref_name }})
+            `SHA     :` [`${{ steps.summary.outputs.sha_short }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            `Event   :` `${{ github.event_name }}`
+            `Duration:` `${{ steps.summary.outputs.duration }}`
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -272,3 +272,125 @@ async fn redirect_is_not_followed_so_api_key_cannot_leak_cross_host() {
     // to `hop` and replay the API key.
     let _ = err;
 }
+
+#[tokio::test]
+async fn fetch_network_config_parses_and_caches() {
+    let server = MockServer::start().await;
+    let counter = Arc::new(AtomicUsize::new(0));
+    #[derive(Clone)]
+    struct CountingCfg {
+        count: Arc<AtomicUsize>,
+    }
+    impl Respond for CountingCfg {
+        fn respond(&self, _: &Request) -> ResponseTemplate {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "networks": {
+                    "testnet": {
+                        "chain_id": 42431,
+                        "rpc_url": "http://example/api/rpc/testnet",
+                        "wss_url": "wss://rpc.tempo-moderato.xyz",
+                        "explorer_url": "https://explorer.tempo-moderato.xyz",
+                        "default_stablecoin": "PathUSD",
+                    },
+                    "mainnet": {
+                        "chain_id": 4217,
+                        "rpc_url": "http://example/api/rpc/mainnet",
+                        "wss_url": "wss://rpc.tempo.xyz",
+                        "explorer_url": "https://explorer.tempo.xyz",
+                        "default_stablecoin": null,
+                    }
+                }
+            }))
+        }
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/config/network"))
+        .respond_with(CountingCfg {
+            count: counter.clone(),
+        })
+        .mount(&server)
+        .await;
+
+    let client = fixture_client(&server.uri());
+    let first = client.fetch_network_config().await.expect("first fetch");
+    let testnet = first.entry("testnet").expect("testnet present");
+    assert_eq!(testnet.chain_id, 42_431);
+    assert_eq!(testnet.rpc_url, "http://example/api/rpc/testnet");
+    let mainnet = first.entry("mainnet").expect("mainnet present");
+    assert_eq!(mainnet.chain_id, 4_217);
+    assert!(mainnet.default_stablecoin.is_none());
+
+    let (name, entry) = first.entry_by_chain_id(42_431).expect("reverse lookup");
+    assert_eq!(name, "testnet");
+    assert_eq!(entry.chain_id, 42_431);
+
+    // Second call must hit the cache — counter stays at 1.
+    let _ = client.fetch_network_config().await.expect("second fetch");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "fetch_network_config must cache the response"
+    );
+}
+
+#[tokio::test]
+async fn post_json_rpc_forwards_body_verbatim() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/rpc/testnet"))
+        .and(header("x-api-key", "test-key-123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": "0xdeadbeef"
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fixture_client(&server.uri());
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_blockNumber",
+        "params": []
+    });
+    let resp = client
+        .post_json_rpc("testnet", &body)
+        .await
+        .expect("proxy passthrough");
+    assert_eq!(
+        resp["result"],
+        serde_json::Value::String("0xdeadbeef".into())
+    );
+}
+
+#[tokio::test]
+async fn post_json_rpc_429_maps_to_rate_limited_with_retry_after() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/rpc/mainnet"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "42")
+                .set_body_json(serde_json::json!({
+                    "error": "rate_limited",
+                    "limit": 10,
+                    "window_seconds": 60,
+                    "retry_after_seconds": 42
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    let client = fixture_client(&server.uri());
+    let body = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"eth_blockNumber"});
+    let err = client
+        .post_json_rpc("mainnet", &body)
+        .await
+        .expect_err("429 must surface");
+    match err {
+        Error::RateLimited { retry_after } => assert_eq!(retry_after, Duration::from_secs(42)),
+        other => panic!("expected RateLimited, got {other:?}"),
+    }
+}

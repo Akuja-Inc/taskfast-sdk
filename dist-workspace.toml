@@ -23,3 +23,7 @@ github-attestations = true
 publish-jobs = ["homebrew"]
 # Whether to install an updater program
 install-updater = false
+# Skip dist plan's drift check for CI files. Required because release.yml
+# has a manual `notify-discord` job appended (mirrors docker.yml) that dist
+# init does not regenerate. Without this, every PR fails the plan step.
+allow-dirty = ["ci"]

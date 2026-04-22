@@ -12,7 +12,9 @@ pub mod client;
 pub mod errors;
 pub mod retry;
 
-pub use client::{map_api_error, TaskFastClient, UserProfile};
+pub use client::{
+    map_api_error, NetworkConfigEntry, NetworkConfigResponse, TaskFastClient, UserProfile,
+};
 pub use errors::{Error, Result};
 pub use retry::{with_backoff, RetryPolicy};
 

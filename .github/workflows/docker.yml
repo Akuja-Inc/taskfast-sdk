@@ -107,3 +107,68 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  notify-discord:
+    name: Notify Discord
+    if: ${{ always() }}
+    needs:
+      - build-and-push
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      DOCKER_RESULT: ${{ needs.build-and-push.result }}
+    steps:
+      - name: Compute release summary
+        id: summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          format_duration() {
+            local total_seconds=$1
+            local hours=$((total_seconds / 3600))
+            local minutes=$(((total_seconds % 3600) / 60))
+            local seconds=$((total_seconds % 60))
+            printf '%02dh %02dm %02ds' "$hours" "$minutes" "$seconds"
+          }
+
+          run_started_at=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.run_started_at')
+          start_epoch=$(date -d "$run_started_at" +%s)
+          now_epoch=$(date +%s)
+          duration=$(format_duration $((now_epoch - start_epoch)))
+
+          if [[ "$DOCKER_RESULT" == "success" ]]; then
+            status="passed"
+            emoji="✅"
+          else
+            status="failed"
+            emoji="❌"
+          fi
+
+          # Strip cargo-dist tag prefix to get bare semver; non-tag refs (workflow_dispatch from a branch) pass through unchanged.
+          version="${REF_NAME#taskfast-cli-v}"
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "emoji=$emoji" >> "$GITHUB_OUTPUT"
+          echo "duration=$duration" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Actions for Discord
+        if: ${{ env.DISCORD_WEBHOOK != '' }}
+        uses: Ilshidur/action-discord@0.4.0
+        env:
+          DISCORD_WEBHOOK: ${{ env.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ${{ steps.summary.outputs.emoji }} Release ${{ steps.summary.outputs.status }} for `${{ github.repository }}`
+            `Tag     :` [${{ github.ref_name }}](https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }})
+            `SHA     :` [`${{ steps.summary.outputs.sha_short }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            `Docker  :` [`ghcr.io/${{ github.repository }}:${{ steps.summary.outputs.version }}`](https://github.com/${{ github.repository }}/pkgs/container/${{ github.event.repository.name }}) (`${{ env.DOCKER_RESULT }}`)
+            `Homebrew:` [Akuja-Inc/homebrew-taskfast](https://github.com/Akuja-Inc/homebrew-taskfast)
+            `Duration:` `${{ steps.summary.outputs.duration }}`
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

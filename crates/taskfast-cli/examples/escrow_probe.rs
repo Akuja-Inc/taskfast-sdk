@@ -12,12 +12,11 @@ use alloy_sol_types::SolCall;
 use reqwest::Client;
 use serde_json::{json, Value};
 use taskfast_agent::chain::{TaskEscrow, IERC20};
+use taskfast_client::TaskFastClient;
 
-const RPC: &str = "https://rpc.moderato.tempo.xyz";
-
-async fn rpc(client: &Client, method: &str, params: Value) -> Value {
+async fn rpc(client: &Client, rpc_url: &str, method: &str, params: Value) -> Value {
     let resp = client
-        .post(RPC)
+        .post(rpc_url)
         .json(&json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}))
         .send()
         .await
@@ -28,10 +27,18 @@ async fn rpc(client: &Client, method: &str, params: Value) -> Value {
     body
 }
 
-async fn eth_call_probe(client: &Client, from: Address, to: Address, data: &Bytes, label: &str) {
+async fn eth_call_probe(
+    client: &Client,
+    rpc_url: &str,
+    from: Address,
+    to: Address,
+    data: &Bytes,
+    label: &str,
+) {
     println!("\n==== {label} ====");
     rpc(
         client,
+        rpc_url,
         "eth_call",
         json!([{
             "from": format!("{from:#x}"),
@@ -48,7 +55,20 @@ async fn main() {
     let api_key = env::var("TASKFAST_API_KEY").expect("TASKFAST_API_KEY");
     let bid_id = env::var("BID").expect("BID=<uuid>");
 
-    let http = Client::new();
+    // Pull the testnet RPC URL from the deployment's /api/config/network.
+    // Reuse the client's pre-authenticated reqwest::Client for RPC calls —
+    // the proxy at {api}/api/rpc/testnet requires X-API-Key.
+    let tf = TaskFastClient::from_api_key(&api, &api_key).expect("construct client");
+    let cfg = tf
+        .fetch_network_config()
+        .await
+        .expect("fetch /api/config/network");
+    let rpc_url = cfg
+        .entry("testnet")
+        .expect("deployment advertises testnet")
+        .rpc_url
+        .clone();
+    let http = tf.http_client();
 
     // 1. Fetch escrow params from the API (CLI-equivalent, so we see exact numbers)
     let params: Value = http
@@ -88,6 +108,7 @@ async fn main() {
     // 2. eth_getCode — confirm task_escrow contract deployed
     rpc(
         &http,
+        &rpc_url,
         "eth_getCode",
         json!([format!("{task_escrow:#x}"), "latest"]),
     )
@@ -96,6 +117,7 @@ async fn main() {
     // 3. eth_getCode on token
     rpc(
         &http,
+        &rpc_url,
         "eth_getCode",
         json!([format!("{token:#x}"), "latest"]),
     )
@@ -107,6 +129,7 @@ async fn main() {
         .into();
     eth_call_probe(
         &http,
+        &rpc_url,
         poster,
         token,
         &balance_data,
@@ -122,6 +145,7 @@ async fn main() {
     .into();
     eth_call_probe(
         &http,
+        &rpc_url,
         poster,
         token,
         &allow_data,
@@ -145,6 +169,7 @@ async fn main() {
     .into();
     eth_call_probe(
         &http,
+        &rpc_url,
         poster,
         task_escrow,
         &open_memo_data,
@@ -163,7 +188,15 @@ async fn main() {
     }
     .abi_encode()
     .into();
-    eth_call_probe(&http, poster, task_escrow, &open_data, "open (no memo)").await;
+    eth_call_probe(
+        &http,
+        &rpc_url,
+        poster,
+        task_escrow,
+        &open_data,
+        "open (no memo)",
+    )
+    .await;
 
     // 7. Attempt: openWithMemo with zero fee
     let open_zero_fee: Bytes = TaskEscrow::openWithMemoCall {
@@ -179,6 +212,7 @@ async fn main() {
     .into();
     eth_call_probe(
         &http,
+        &rpc_url,
         poster,
         task_escrow,
         &open_zero_fee,
@@ -201,6 +235,7 @@ async fn main() {
     .into();
     eth_call_probe(
         &http,
+        &rpc_url,
         poster,
         task_escrow,
         &open_min,
@@ -212,6 +247,7 @@ async fn main() {
     println!("\n==== debug_traceCall openWithMemo (may be unsupported) ====");
     rpc(
         &http,
+        &rpc_url,
         "debug_traceCall",
         json!([{
             "from": format!("{poster:#x}"),

@@ -20,11 +20,13 @@
 //! so callers can invoke `client.inner().get_agent_profile().await` and then
 //! pipe the result through [`map_api_error`] or the retry wrapper as they prefer.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tokio::sync::OnceCell;
 
 use crate::api;
 use crate::errors::{Error, Result};
@@ -45,6 +47,10 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub struct TaskFastClient {
     inner: api::Client,
     policy: RetryPolicy,
+    /// Per-client cache of the public `GET /api/config/network` payload.
+    /// Fetched lazily on first access; immutable per deployment, so a
+    /// process-lifetime cache is sufficient.
+    network_cfg: OnceCell<NetworkConfigResponse>,
 }
 
 impl TaskFastClient {
@@ -83,7 +89,16 @@ impl TaskFastClient {
         Ok(Self {
             inner: api::Client::new_with_client(&resolved, http),
             policy: RetryPolicy::default(),
+            network_cfg: OnceCell::new(),
         })
+    }
+
+    /// Underlying reqwest::Client, pre-configured with the `X-API-Key` header.
+    /// Lets callers build requests outside the progenitor-generated surface
+    /// (e.g. to forward a JSON-RPC body to `POST /api/rpc/{network}` via the
+    /// same connection pool + default headers).
+    pub fn http_client(&self) -> reqwest::Client {
+        self.inner.client().clone()
     }
 
     /// Override the retry policy (default: [`RetryPolicy::default`]).
@@ -183,6 +198,55 @@ impl TaskFastClient {
         }
     }
 
+    /// `GET /api/config/network` — per-network chain metadata.
+    ///
+    /// Public endpoint, no auth required; the `X-API-Key` header attached by
+    /// `from_api_key` is harmless on the server side. Result is cached on
+    /// this client instance for the rest of the process — the payload is
+    /// immutable per deployment (operator-side config changes require a
+    /// redeploy to take effect).
+    ///
+    /// Each entry's `rpc_url` points at this same deployment's authenticated
+    /// `POST /api/rpc/{network}` proxy, NOT the upstream Tempo gateway.
+    pub async fn fetch_network_config(&self) -> Result<&NetworkConfigResponse> {
+        self.network_cfg
+            .get_or_try_init(|| async {
+                let url = format!("{}/config/network", self.inner.baseurl());
+                let resp = self.inner.client().get(url).send().await?;
+                if !resp.status().is_success() {
+                    return Err(classify_response(resp).await);
+                }
+                let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
+                Ok(serde_json::from_slice::<NetworkConfigResponse>(&bytes)?)
+            })
+            .await
+    }
+
+    /// `POST /api/rpc/{network}` — forward a JSON-RPC call through the
+    /// operator's upstream proxy.
+    ///
+    /// `network` is the key into the `fetch_network_config` map
+    /// (`"testnet"` / `"mainnet"`). Response body is returned verbatim as
+    /// [`serde_json::Value`] — the proxy forwards the upstream JSON-RPC
+    /// envelope without touching it, so callers parse `result` / `error`
+    /// per the JSON-RPC 2.0 spec.
+    ///
+    /// 429 surfaces as [`Error::RateLimited`] with the `Retry-After`
+    /// header honored by `classify_response`; 5xx as [`Error::Server`].
+    pub async fn post_json_rpc(
+        &self,
+        network: &str,
+        request: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/rpc/{}", self.inner.baseurl(), network);
+        let resp = self.inner.client().post(url).json(request).send().await?;
+        if !resp.status().is_success() {
+            return Err(classify_response(resp).await);
+        }
+        let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
+        Ok(serde_json::from_slice::<serde_json::Value>(&bytes)?)
+    }
+
     /// `GET /agents/me/events` — raw JSON escape hatch.
     ///
     /// Mirrors the generated `list_agent_events` but returns
@@ -260,6 +324,60 @@ pub async fn map_api_error(err: api::Error<()>) -> Error {
         AE::PreHookError(m) => Error::Server(format!("pre-hook: {m}")),
         AE::PostHookError(m) => Error::Server(format!("post-hook: {m}")),
     }
+}
+
+/// Per-network chain configuration returned by `GET /api/config/network`.
+///
+/// Keys of `networks` are network names (`"testnet"`, `"mainnet"`);
+/// networks the deployment does not support are simply absent.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NetworkConfigResponse {
+    /// Network name → chain metadata.
+    pub networks: HashMap<String, NetworkConfigEntry>,
+}
+
+impl NetworkConfigResponse {
+    /// Return the entry for `network` name or an `Error::Validation` if
+    /// the deployment does not advertise it.
+    pub fn entry(&self, network: &str) -> Result<&NetworkConfigEntry> {
+        self.networks.get(network).ok_or_else(|| Error::Validation {
+            code: "unknown_network".to_string(),
+            message: format!("deployment does not advertise network `{network}`"),
+        })
+    }
+
+    /// Reverse-lookup: find the entry whose `chain_id` matches. Used when
+    /// the caller knows the chain ID (e.g. from escrow params) but not
+    /// the network name. Errors if no entry matches.
+    pub fn entry_by_chain_id(&self, chain_id: i64) -> Result<(&str, &NetworkConfigEntry)> {
+        self.networks
+            .iter()
+            .find(|(_, e)| e.chain_id == chain_id)
+            .map(|(name, entry)| (name.as_str(), entry))
+            .ok_or_else(|| Error::Validation {
+                code: "unknown_chain_id".to_string(),
+                message: format!(
+                    "no network in /api/config/network advertises chain_id={chain_id}"
+                ),
+            })
+    }
+}
+
+/// Chain metadata for a single Tempo network.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NetworkConfigEntry {
+    /// EVM chain ID (e.g. `4217` for Tempo mainnet, `42_431` for moderato testnet).
+    pub chain_id: i64,
+    /// Authenticated JSON-RPC proxy URL on this deployment
+    /// (`{api_base}/api/rpc/{network}`). NOT the upstream Tempo gateway.
+    pub rpc_url: String,
+    /// WebSocket JSON-RPC URL on the native Tempo gateway (no proxy).
+    pub wss_url: String,
+    /// Block-explorer base URL for this network.
+    pub explorer_url: String,
+    /// Default stablecoin ticker; `None` when the deployment has not
+    /// finalized a token for the network (e.g. mainnet pre-launch).
+    pub default_stablecoin: Option<String>,
 }
 
 /// Owning human's display name + email, returned by `GET /users/me`.

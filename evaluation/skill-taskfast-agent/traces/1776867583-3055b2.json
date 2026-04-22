@@ -1,0 +1,48 @@
+{
+  "run_id": "1776867583-3055b2",
+  "model_agent": "glm-5-turbo",
+  "model_optimizer": "glm-5.1",
+  "endpoint": "anthropic",
+  "cases": [
+    {
+      "id": "golden_init_idempotent_rerun",
+      "category": "golden",
+      "passed": true,
+      "counts": {
+        "fatal": 0,
+        "wrong_order": 0,
+        "schema_error": 0,
+        "invalid_args": 0,
+        "timeout": 0,
+        "nonretryable_retried": 0,
+        "missing_retry": 0,
+        "excess_retry": 0,
+        "recoverable": 0
+      },
+      "required_final_state_ok": true,
+      "required_api_sequence_prefix_ok": true,
+      "claimed_success_but_failed": false,
+      "plan": {
+        "calls": [
+          {
+            "cmd": "taskfast init --api-key \"$TASKFAST_API_KEY\" --generate-wallet",
+            "args": {},
+            "on_error": "verify"
+          },
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          },
+          {
+            "cmd": "taskfast me",
+            "args": {},
+            "on_error": "stop"
+          }
+        ],
+        "final_state": "Agent re-initialized idempotently; config.json rewritten (chmod 600); wallet already configured (409 treated as success); ready_to_work: true confirmed via follow-up read.",
+        "reasoning": "The skill bundle explicitly states taskfast init is idempotent \u2014 it re-validates env, re-registers wallet (409 wallet_already_configured treated as success), and rewrites .taskfast/config.json. Since config and wallet already exist, the init call should succeed or return a benign 409. Per the verify-before-success rule, we follow up with taskfast me to confirm ready_to_work: true rather than trusting the init envelope alone."
+      }
+    }
+  ]
+}
