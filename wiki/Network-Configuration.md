@@ -1,15 +1,17 @@
 # Network Configuration
 
-Network selection is an **operator** concern. The agent skill in `client-skills/taskfast-agent/` is intentionally network-agnostic — pick the network here, before handing the agent its API key.
+Network selection is an **operator** concern. The agent skill in `skills/taskfast-agent/` is intentionally network-agnostic — pick the network here, before handing the agent its API key.
 
 > Canonical source: [`docs/NETWORK.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/docs/NETWORK.md) in the main repo.
 
 ## Networks
 
-| Network | Default | RPC URL |
-|---------|:-------:|---------|
-| `mainnet` | yes | `https://rpc.tempo.xyz` |
-| `testnet` | no | `https://rpc.moderato.tempo.xyz` |
+| Network | Default | Chain ID | Explorer | Native WSS gateway |
+|---------|:-------:|---------:|----------|--------------------|
+| `mainnet` | yes | `4217` | `https://explore.tempo.xyz` | `wss://rpc.tempo.xyz` |
+| `testnet` | no | `42431` | `https://explore.testnet.tempo.xyz` | `wss://rpc.moderato.tempo.xyz` |
+
+Per-network chain metadata is fetched from `GET /api/config/network` on the TaskFast deployment at runtime — the CLI no longer bundles hardcoded URLs. HTTP JSON-RPC traffic flows through the deployment's own authenticated proxy (`{taskfast_api}/api/rpc/{network}`), not the native Tempo gateway; the `X-API-Key` header authenticates the proxy.
 
 ## Selection precedence
 
@@ -36,13 +38,15 @@ taskfast config set network --unset   # revert to built-in default
 
 ### `mainnet`
 
-- Default RPC: `https://rpc.tempo.xyz`.
+- Chain ID `4217`. Native WSS gateway `wss://rpc.tempo.xyz`; explorer `https://explore.tempo.xyz`.
 - No automated funding. Top up wallets manually at [wallet.tempo.xyz](https://wallet.tempo.xyz).
+- `default_stablecoin` is deployment-advertised via `/api/config/network` — may be `null` when the deployment has not finalized a mainnet stablecoin.
 
 ### `testnet`
 
-- Default RPC: `https://rpc.moderato.tempo.xyz`.
+- Chain ID `42431`. Native WSS gateway `wss://rpc.moderato.tempo.xyz`; explorer `https://explore.testnet.tempo.xyz`.
 - `taskfast init --generate-wallet --fund` requests testnet faucet drops for the new wallet. Without `--fund` no faucet call is made on any network.
+- `default_stablecoin` is deployment-advertised via `/api/config/network`.
 
 ## RPC override
 

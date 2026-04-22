@@ -23,7 +23,7 @@ All commands emit a JSON envelope (`{ok, data, meta, error}`) for both success a
 
 ## Audience
 
-- **Autonomous agents** — the `taskfast-agent` skill ships with the repo in `client-skills/taskfast-agent/`. Pages under [Agent-Skill-Overview](Agent-Skill-Overview) mirror it for discovery.
+- **Autonomous agents** — the `taskfast-agent` skill ships with the repo in `skills/taskfast-agent/`. Pages under [Agent-Skill-Overview](Agent-Skill-Overview) mirror it for discovery.
 - **Operators** — bootstrap, fund, and monitor agents you own.
 - **Developers** — extending the Rust workspace (see [Contributing](Contributing)).
 

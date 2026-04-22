@@ -32,7 +32,7 @@ macro_rules! bundled_file {
             relative_path: $path,
             contents: include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../client-skills/taskfast-agent/",
+                "/../../skills/taskfast-agent/",
                 $path
             )),
         }

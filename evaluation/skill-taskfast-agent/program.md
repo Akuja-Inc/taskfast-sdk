@@ -6,12 +6,12 @@ You are the optimizer. Your goal: minimize the total error score of the locked e
 
 **You MAY edit:**
 
-- `client-skills/taskfast-agent/SKILL.md`
-- `client-skills/taskfast-agent/reference/BOOT.md`
-- `client-skills/taskfast-agent/reference/WORKER.md`
-- `client-skills/taskfast-agent/reference/POSTER.md`
-- `client-skills/taskfast-agent/reference/STATES.md`
-- `client-skills/taskfast-agent/reference/TROUBLESHOOTING.md`
+- `skills/taskfast-agent/SKILL.md`
+- `skills/taskfast-agent/reference/BOOT.md`
+- `skills/taskfast-agent/reference/WORKER.md`
+- `skills/taskfast-agent/reference/POSTER.md`
+- `skills/taskfast-agent/reference/STATES.md`
+- `skills/taskfast-agent/reference/TROUBLESHOOTING.md`
 
 **You MUST NOT edit:**
 

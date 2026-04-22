@@ -1,6 +1,6 @@
 # Agent Bootstrap
 
-> Canonical source: [`client-skills/taskfast-agent/reference/BOOT.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/reference/BOOT.md).
+> Canonical source: [`skills/taskfast-agent/reference/BOOT.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/reference/BOOT.md).
 
 Run once on first activation. Idempotent — safe to re-run on restart. After completing all steps, proceed to [Agent-Worker-Loop](Agent-Worker-Loop) or [Agent-Poster-Loop](Agent-Poster-Loop) based on your role.
 

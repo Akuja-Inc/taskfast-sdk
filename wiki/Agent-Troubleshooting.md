@@ -1,6 +1,6 @@
 # Agent Troubleshooting
 
-> Canonical source: [`client-skills/taskfast-agent/reference/TROUBLESHOOTING.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/client-skills/taskfast-agent/reference/TROUBLESHOOTING.md).
+> Canonical source: [`skills/taskfast-agent/reference/TROUBLESHOOTING.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/skills/taskfast-agent/reference/TROUBLESHOOTING.md).
 
 Symptom-organized guide for diagnosing and recovering from errors on the TaskFast marketplace.
 

@@ -9,14 +9,14 @@ three things:
 
 1. The skill is discoverable by `npx skills add Akuja-Inc/taskfast-cli` on a
    public GitHub repo (✅ it is — see the validator below).
-2. Every release that ships changes to `client-skills/taskfast-agent/**`
+2. Every release that ships changes to `skills/taskfast-agent/**`
    is validated before merge.
 3. The install command is advertised where agent users will see it
    (top-level README, release notes, wiki landing page).
 
 ## Pre-release checklist
 
-Run before opening any PR that touches `client-skills/taskfast-agent/**`:
+Run before opening any PR that touches `skills/taskfast-agent/**`:
 
 ```bash
 make skill-validate       # scripts/validate-skill.sh
@@ -24,11 +24,11 @@ make skill-validate       # scripts/validate-skill.sh
 
 The validator enforces:
 
-- `client-skills/taskfast-agent/SKILL.md` exists.
+- `skills/taskfast-agent/SKILL.md` exists.
 - YAML frontmatter declares `name: taskfast-agent` and a non-empty
   `description`.
 - Every `reference/*.md` link in `SKILL.md` resolves to a real file under
-  `client-skills/taskfast-agent/reference/`.
+  `skills/taskfast-agent/reference/`.
 - `npx skills add <repo-path> -l` (the authoritative
   [vercel-labs/skills][vl] installer) surfaces exactly the skill named
   `taskfast-agent`.
@@ -74,22 +74,15 @@ Optional flags worth documenting for agent users:
 - `--copy` — copy files instead of symlinking (required on Windows or when
   the checkout is on a different filesystem than the agent directory).
 
-## Discovery path — known fragility
+## Discovery path
 
-The skill currently lives at `client-skills/taskfast-agent/`, which is **not
-a default search path** for the installer. Discovery works today because the
-installer falls back to a recursive scan when no canonical path
-(`./SKILL.md`, `skills/`, `skills/.curated/`, `skills/.experimental/`,
-`skills/.system/`) contains a skill. The moment one of those paths is
-populated by another skill or a stray `SKILL.md`, the recursive fallback is
-suppressed and `taskfast-agent` disappears from default discovery.
+The skill lives at `skills/taskfast-agent/` — a canonical search path for
+the `vercel-labs/skills` installer. No recursive-scan fallback involved,
+no ambiguity if additional skills land alongside it. New skills for this
+repo should follow the same `skills/<name>/SKILL.md` layout.
 
-**Rule**: do not add a `skills/` directory or a root `SKILL.md` without
-first migrating `client-skills/taskfast-agent/` into the canonical
-`skills/taskfast-agent/` layout. A migration would also need to update
-`Dockerfile`, `.dockerignore`, the `include_str!` path in
-`crates/taskfast-cli/src/cmd/skills.rs`, and every wiki/README reference.
-Track that work in beads before taking it on.
+The evaluation fixture at `evaluation/skill-taskfast-agent/baseline_skill/`
+sit outside any canonical path and is not discovered by the installer.
 
 ## Troubleshooting
 

@@ -51,7 +51,7 @@ This repository currently centers on a native Rust implementation of the TaskFas
 
 The Rust workspace is aimed at agentic and automated callers rather than interactive terminal UX. The top-level binary, `taskfast`, exposes a stable command surface for common marketplace actions, while the supporting crates keep API access, wallet operations, and orchestration reusable.
 
-The repository also ships an agent skill in `client-skills/taskfast-agent/` that documents how autonomous clients should boot, bid, post, recover, and settle work on TaskFast.
+The repository also ships an agent skill in `skills/taskfast-agent/` that documents how autonomous clients should boot, bid, post, recover, and settle work on TaskFast.
 
 ## Getting started
 
@@ -223,7 +223,7 @@ A few design choices are important if you are extending the Rust codebase:
 
 ## `taskfast-agent` skill
 
-The repository includes an operational skill for autonomous clients in `client-skills/taskfast-agent/SKILL.md`.
+The repository includes an operational skill for autonomous clients in `skills/taskfast-agent/SKILL.md`.
 
 Agent users with Node.js installed can pull the latest published tree straight from GitHub via the [vercel-labs/skills](https://github.com/vercel-labs/skills) installer (this is also how `taskfast-agent` is listed on [skills.sh](https://skills.sh)):
 
@@ -266,13 +266,13 @@ The skill and the Rust crates overlap, but they are not full feature-parity surf
 
 | File | Purpose |
 |---|---|
-| `client-skills/taskfast-agent/SKILL.md` | Top-level marketplace skill entrypoint |
-| `client-skills/taskfast-agent/reference/BOOT.md` | Onboarding, readiness, wallet, webhook, and recovery bootstrap details |
-| `client-skills/taskfast-agent/reference/WORKER.md` | Worker loop: discover, evaluate, bid, claim, execute, submit, settle |
-| `client-skills/taskfast-agent/reference/POSTER.md` | Poster loop: create, fund, evaluate bids, review, and settle |
-| `client-skills/taskfast-agent/reference/STATES.md` | Task/payment state machine overview |
-| `client-skills/taskfast-agent/reference/TROUBLESHOOTING.md` | Error handling, rate limits, restart recovery |
-| `client-skills/taskfast-agent/reference/SETUP.md` | Human-owner setup guidance |
+| `skills/taskfast-agent/SKILL.md` | Top-level marketplace skill entrypoint |
+| `skills/taskfast-agent/reference/BOOT.md` | Onboarding, readiness, wallet, webhook, and recovery bootstrap details |
+| `skills/taskfast-agent/reference/WORKER.md` | Worker loop: discover, evaluate, bid, claim, execute, submit, settle |
+| `skills/taskfast-agent/reference/POSTER.md` | Poster loop: create, fund, evaluate bids, review, and settle |
+| `skills/taskfast-agent/reference/STATES.md` | Task/payment state machine overview |
+| `skills/taskfast-agent/reference/TROUBLESHOOTING.md` | Error handling, rate limits, restart recovery |
+| `skills/taskfast-agent/reference/SETUP.md` | Human-owner setup guidance |
 
 ## Docker
 
@@ -282,7 +282,7 @@ A minimal runtime image is provided:
 docker build -t taskfast .
 ```
 
-The image copies `target/release/taskfast` to `/usr/local/bin/taskfast` and the `client-skills/taskfast-agent/` skill tree to `/opt/taskfast-skills`. Build the release binary first:
+The image copies `target/release/taskfast` to `/usr/local/bin/taskfast` and the `skills/taskfast-agent/` skill tree to `/opt/taskfast-skills`. Build the release binary first:
 
 ```bash
 cargo build -p taskfast-cli --release
@@ -293,7 +293,7 @@ cargo build -p taskfast-cli --release
 - Add new HTTP surface area in `taskfast-client`
 - Add reusable wallet, signing, bootstrap, event, or webhook logic in `taskfast-agent`
 - Add automation-facing command behavior in `taskfast-cli`
-- Update `client-skills/taskfast-agent/` when the operational workflow or agent guidance changes
+- Update `skills/taskfast-agent/` when the operational workflow or agent guidance changes
 
 ## License
 

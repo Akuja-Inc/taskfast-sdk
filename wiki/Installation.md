@@ -43,7 +43,7 @@ Runtime image published to GHCR on every release:
 docker run --rm ghcr.io/akuja-inc/taskfast:latest taskfast --help
 ```
 
-The image ships `taskfast` at `/usr/local/bin/taskfast` plus the `client-skills/taskfast-agent/` skill tree at `/opt/taskfast-skills`. Mount a working directory if you need config persistence:
+The image ships `taskfast` at `/usr/local/bin/taskfast` plus the `skills/taskfast-agent/` skill tree at `/opt/taskfast-skills`. Mount a working directory if you need config persistence:
 
 ```bash
 docker run --rm -v "$PWD/.taskfast:/work/.taskfast" -w /work \

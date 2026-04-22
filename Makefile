@@ -61,7 +61,7 @@ bump-major:
 	cargo xtask bump major
 
 # Validate the bundled taskfast-agent skill against the vercel-labs/skills
-# installer. Run before opening any PR that touches client-skills/taskfast-agent.
+# installer. Run before opening any PR that touches skills/taskfast-agent.
 skill-validate:
 	./scripts/validate-skill.sh
 

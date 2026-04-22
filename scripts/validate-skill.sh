@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILL_DIR="${ROOT}/client-skills/taskfast-agent"
+SKILL_DIR="${ROOT}/skills/taskfast-agent"
 SKILL_MD="${SKILL_DIR}/SKILL.md"
 EXPECTED_NAME="taskfast-agent"
 

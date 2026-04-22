@@ -38,7 +38,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-SKILL_ROOT = REPO / "client-skills" / "taskfast-agent"
+SKILL_ROOT = REPO / "skills" / "taskfast-agent"
 CASES_PATH = HERE / "eval_cases.jsonl"
 TRACE_DIR = HERE / "traces"
 LATEST_TRACE = TRACE_DIR / "latest_eval.json"

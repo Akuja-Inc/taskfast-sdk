@@ -3,13 +3,13 @@ name: skill-validate
 on:
   pull_request:
     paths:
-      - 'client-skills/taskfast-agent/**'
+      - 'skills/taskfast-agent/**'
       - 'scripts/validate-skill.sh'
       - '.github/workflows/skill-validate.yml'
   push:
     branches: [main]
     paths:
-      - 'client-skills/taskfast-agent/**'
+      - 'skills/taskfast-agent/**'
       - 'scripts/validate-skill.sh'
       - '.github/workflows/skill-validate.yml'
 
