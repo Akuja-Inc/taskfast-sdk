@@ -35,11 +35,18 @@ Run once after cloning to enable the same gates CI uses:
 ./.githooks/install.sh
 ```
 
-- `pre-commit` runs `cargo fmt --check` (+ `typos` if installed).
+- `pre-commit` runs `cargo fmt --check` (+ `gitleaks` and `typos` if installed).
+- `commit-msg` enforces Conventional Commits on the subject line.
 - `pre-push` runs `cargo clippy -D warnings`, `cargo test`, and `cargo doc -D warnings`.
+- Set `TASKFAST_FULL_GATE=1` before `git push` to also run `cargo audit` +
+  `cargo deny` locally (catches supply-chain fails before CI). Requires
+  `cargo install cargo-audit cargo-deny`.
+- Hooks chain to **beads** (`bd hooks run ...`) — `./.githooks/install.sh`
+  supersedes `bd hooks install`. If you run `bd hooks install` later, re-run
+  `./.githooks/install.sh` to restore repo gates.
 
 Bypass a hook with `--no-verify` (CI will still block).
-`make ci` runs the same gate manually.
+`make ci` runs the standard gate; `make ci-full` adds audit + deny.
 
 ## Commit style — Conventional Commits
 

@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# pre-commit — fast gate. Blocks commit on fmt violations.
+# pre-commit — fast gate. Blocks commit on fmt violations, secret leaks, typos.
 #
 # Skip with: git commit --no-verify  (use sparingly; CI will still catch)
 # Install:   ./.githooks/install.sh
 
 set -euo pipefail
+
+# --- BEGIN BEADS INTEGRATION v0.59.0 ---
+# Chained from .beads/hooks/pre-commit so beads still runs when
+# core.hooksPath is pointed at .githooks (see install.sh).
+if command -v bd >/dev/null 2>&1; then
+  export BD_GIT_HOOK=1
+  bd hooks run pre-commit "$@"
+  _bd_exit=$?; if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
+fi
+# --- END BEADS INTEGRATION v0.59.0 ---
 
 # Jump to repo root so cargo finds the workspace manifest regardless of cwd.
 cd "$(git rev-parse --show-toplevel)"
@@ -18,6 +28,17 @@ Fix with:  cargo fmt --all
 Bypass:    git commit --no-verify  (discouraged — CI will block)
 EOF
     exit 1
+fi
+
+# Secret scan — only runs if binary present. Install: brew/apt install gitleaks
+# Scans staged diff only; fast.
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: gitleaks protect --staged"
+    if ! gitleaks protect --staged --redact --no-banner; then
+        echo >&2 "pre-commit: gitleaks flagged staged content. Review above."
+        echo >&2 "pre-commit: bypass with --no-verify (discouraged)."
+        exit 1
+    fi
 fi
 
 # Soft typos gate — only runs if binary present. Install: cargo install typos-cli

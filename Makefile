@@ -1,4 +1,4 @@
-.PHONY: hooks fmt fmt-check clippy test doc ci bump-patch bump-minor bump-major
+.PHONY: hooks fmt fmt-check clippy test doc ci audit deny supply-chain ci-full bump-patch bump-minor bump-major
 
 hooks:
 	./.githooks/install.sh
@@ -18,8 +18,23 @@ test:
 doc:
 	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 
+# Vulnerability scan. Matches the rustsec/audit-check job in CI.
+# Requires: cargo install cargo-audit
+audit:
+	cargo audit --deny warnings=false
+
+# Advisory + license + bans + sources. Matches the cargo-deny job in CI.
+# Requires: cargo install cargo-deny
+deny:
+	cargo deny check
+
+supply-chain: audit deny
+
 # Same gate the pre-push hook runs. Handy for manual verification.
 ci: fmt-check clippy test doc
+
+# Full gate including supply-chain. Use before pushing risky dep bumps.
+ci-full: ci supply-chain
 
 # Bump workspace version (taskfast-cli + taskfast-agent). See CONTRIBUTING.md.
 bump-patch:

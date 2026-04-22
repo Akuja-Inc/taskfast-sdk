@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
-# pre-push — slow gate. Mirrors .github/workflows/ci.yml exactly for
-# clippy, test, doc. cargo-deny / cargo-audit stay CI-only (advisory-db
-# flaps; see plan).
+# pre-push — slow gate. Mirrors .github/workflows/ci.yml for clippy, test, doc.
+#
+# Opt-in full gate adds cargo-deny + cargo-audit (set TASKFAST_FULL_GATE=1).
+# Kept opt-in because advisory-db flaps and the network fetch can block a push.
 #
 # Skip with: git push --no-verify
 # Install:   ./.githooks/install.sh
 
 set -euo pipefail
+
+# --- BEGIN BEADS INTEGRATION v0.59.0 ---
+# Chained from .beads/hooks/pre-push so beads still runs when
+# core.hooksPath is pointed at .githooks (see install.sh).
+if command -v bd >/dev/null 2>&1; then
+  export BD_GIT_HOOK=1
+  bd hooks run pre-push "$@"
+  _bd_exit=$?; if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
+fi
+# --- END BEADS INTEGRATION v0.59.0 ---
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -25,6 +36,26 @@ cargo test --workspace --locked
 
 step "cargo doc --workspace --no-deps --locked (RUSTDOCFLAGS=-D warnings)"
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+
+# Opt-in: catch supply-chain regressions (RUSTSEC / license / banned deps)
+# before the push hits CI. Requires: cargo install cargo-audit cargo-deny
+if [[ "${TASKFAST_FULL_GATE:-0}" == "1" ]]; then
+    if command -v cargo-audit >/dev/null 2>&1; then
+        step "cargo audit --deny warnings=false"
+        cargo audit --deny warnings=false
+    else
+        echo "pre-push: TASKFAST_FULL_GATE=1 but cargo-audit not installed; skipping."
+        echo "pre-push:   cargo install cargo-audit"
+    fi
+
+    if command -v cargo-deny >/dev/null 2>&1; then
+        step "cargo deny check"
+        cargo deny check
+    else
+        echo "pre-push: TASKFAST_FULL_GATE=1 but cargo-deny not installed; skipping."
+        echo "pre-push:   cargo install cargo-deny"
+    fi
+fi
 
 echo
 echo "pre-push: ok"
