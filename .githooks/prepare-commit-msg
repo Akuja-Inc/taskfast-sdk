@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# prepare-commit-msg — chain to beads (adds agent identity trailers).
+# No repo-specific logic here; beads integration only.
+
+set -euo pipefail
+
+# --- BEGIN BEADS INTEGRATION v0.59.0 ---
+if command -v bd >/dev/null 2>&1; then
+  export BD_GIT_HOOK=1
+  bd hooks run prepare-commit-msg "$@"
+  _bd_exit=$?; if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
+fi
+# --- END BEADS INTEGRATION v0.59.0 ---

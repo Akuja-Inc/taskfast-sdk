@@ -7,8 +7,6 @@ yanked = "deny"
 ignore = [
     # paste — unmaintained, deep transitive of alloy/ark-* macro tree
     "RUSTSEC-2024-0436",
-    # derivative — unmaintained, transitive of ark-ff/ark-serialize
-    "RUSTSEC-2024-0388",
     # rand 0.8 — unsound only under custom-logger + thread_rng reseed race; not triggered here
     "RUSTSEC-2026-0097",
 ]

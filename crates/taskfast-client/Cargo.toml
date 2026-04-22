@@ -18,7 +18,6 @@ workspace = true
 dist = false
 
 [dependencies]
-anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -40,8 +39,16 @@ openapiv3 = { version = "2", default-features = false }
 prettyplease = "0.2"
 syn = { version = "2", features = ["full"] }
 serde_yaml.workspace = true
-xtask = { path = "../../xtask", version = "0.2.7" }
+xtask = { path = "../../xtask", version = "0.3.0" }
 
 [dev-dependencies]
 wiremock = "0.6"
 tokio = { workspace = true, features = ["macros", "rt"] }
+
+# Deps below appear only in build.rs-generated code ($OUT_DIR/codegen.rs,
+# produced by progenitor from spec/openapi.yaml). cargo-machete scans the
+# source tree and can't see generated files — ignore here to avoid false
+# positives. If the spec drops a type (e.g., base64/rand), leave the entry
+# until the next release so re-adding it later is a one-line revert.
+[package.metadata.cargo-machete]
+ignored = ["progenitor-client", "bytes", "chrono", "regress", "futures", "rand", "base64"]

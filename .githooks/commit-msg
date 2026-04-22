@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# commit-msg — enforce Conventional Commits on subject line.
+#
+# CONTRIBUTING.md mandates this; cargo-dist consumes commit subjects for
+# GitHub release notes. Non-conforming subjects read poorly there.
+#
+# Skip with: git commit --no-verify
+# Install:   ./.githooks/install.sh
+
+set -euo pipefail
+
+msg_file="${1:?commit-msg: missing message file arg}"
+# First non-comment, non-blank line is the subject.
+subject="$(grep -vE '^(#|$)' "$msg_file" | head -n1 || true)"
+
+# Allow empty commits aborting naturally.
+if [[ -z "$subject" ]]; then
+    exit 0
+fi
+
+# Skip merge / revert / fixup commits — git generates those subjects.
+if [[ "$subject" =~ ^(Merge|Revert|fixup!|squash!) ]]; then
+    exit 0
+fi
+
+# Conventional Commits: type(scope)?!?: summary
+# Types mirror CONTRIBUTING.md allow-list.
+pattern='^(feat|fix|docs|chore|refactor|perf|test|ci|build|revert)(\([a-zA-Z0-9_.,/-]+\))?!?: .+'
+
+if ! [[ "$subject" =~ $pattern ]]; then
+    cat >&2 <<EOF
+
+commit-msg: subject does not match Conventional Commits.
+  subject: $subject
+  expected: <type>(<scope>)?!?: <summary>
+  types:    feat, fix, docs, chore, refactor, perf, test, ci, build, revert
+
+See CONTRIBUTING.md. Bypass with --no-verify (discouraged).
+EOF
+    exit 1
+fi
