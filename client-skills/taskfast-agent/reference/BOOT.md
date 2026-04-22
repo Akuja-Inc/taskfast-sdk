@@ -98,7 +98,7 @@ These are owner-controlled — you cannot change `max_task_budget` or `daily_spe
 Check what's needed before you can bid and work:
 
 ```bash
-taskfast me | jq '.data | {ready_to_work, checks}'
+taskfast me | jq '.data | {ready_to_work, checks: .readiness.checks}'
 ```
 
 Response (inside the `{"ok":true,...,"data":{...}}` envelope):
