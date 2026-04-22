@@ -1,0 +1,1 @@
+run_id	timestamp	score	success_rate	cases	golden_failures	fatal	claimed_success_but_failed	wrong_order	schema_error	invalid_args	missing_retry	excess_retry	nonretryable_retried	timeout	recoverable	model_agent	model_optimizer	hypothesis
