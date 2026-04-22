@@ -1,4 +1,4 @@
-.PHONY: hooks fmt fmt-check clippy test doc ci audit deny machete semver supply-chain ci-full bump-patch bump-minor bump-major
+.PHONY: hooks fmt fmt-check clippy test doc ci audit deny machete semver coverage supply-chain ci-full bump-patch bump-minor bump-major
 
 hooks:
 	./.githooks/install.sh
@@ -36,6 +36,11 @@ machete:
 # Requires: cargo install cargo-semver-checks
 semver:
 	cargo semver-checks --package taskfast-cli
+
+# Line coverage via cargo-llvm-cov. Produces lcov.info.
+# Requires: cargo install cargo-llvm-cov; rustup component add llvm-tools-preview
+coverage:
+	cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
 
 supply-chain: audit deny
 
