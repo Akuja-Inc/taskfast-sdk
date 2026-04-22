@@ -14,7 +14,7 @@ DO NOT EDIT scoring categories or `expected`-field semantics. Locked per program
 
 Env:
   ZAI_API_KEY              required
-  ZAI_ENDPOINT_STYLE       openai | anthropic   (default: openai)
+  ZAI_ENDPOINT_STYLE       openai | anthropic   (default: anthropic — paas/v4 bucket may be billing-gated)
   AGENT_MODEL              default: glm-5-turbo
   OPTIMIZER_MODEL          default: glm-5.1   (recorded in trace; not used here)
 
@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -96,10 +97,21 @@ def load_cases() -> list[dict]:
     return cases
 
 
+_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+
+
 def _safe_json(text: str) -> dict:
-    """Parse model output; if not JSON, return a failure-shaped plan."""
+    """Parse model output; strip code fences; return failure-shaped plan on non-JSON.
+
+    Anthropic-compat path has no native `response_format` — some GLM variants
+    (e.g. glm-5.1) wrap JSON in ```json ... ``` despite prompt instructions.
+    """
+    stripped = text.strip()
+    m = _FENCE_RE.match(stripped)
+    if m:
+        stripped = m.group(1).strip()
     try:
-        return json.loads(text)
+        return json.loads(stripped)
     except json.JSONDecodeError as e:
         return {
             "calls": [],
@@ -286,7 +298,7 @@ def main() -> int:
         print("ERROR: set ZAI_API_KEY", file=sys.stderr)
         return 2
 
-    endpoint = os.environ.get("ZAI_ENDPOINT_STYLE", "openai")
+    endpoint = os.environ.get("ZAI_ENDPOINT_STYLE", "anthropic")
     model = os.environ.get("AGENT_MODEL", "glm-5-turbo")
 
     TRACE_DIR.mkdir(parents=True, exist_ok=True)

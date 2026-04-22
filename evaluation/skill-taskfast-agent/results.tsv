@@ -1,1 +1,2 @@
 run_id	timestamp	score	success_rate	cases	golden_failures	fatal	claimed_success_but_failed	wrong_order	schema_error	invalid_args	missing_retry	excess_retry	nonretryable_retried	timeout	recoverable	model_agent	model_optimizer	hypothesis
+1776867583-3055b2	2026-04-22T14:19:50.523668+00:00	0	1.0	1	0	0	0	0	0	0	0	0	0	0	0	glm-5-turbo	glm-5.1	

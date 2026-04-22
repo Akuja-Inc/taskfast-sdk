@@ -10,7 +10,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export ZAI_API_KEY=...                # required
 # optional:
-export ZAI_ENDPOINT_STYLE=openai       # or anthropic
+export ZAI_ENDPOINT_STYLE=anthropic    # default; openai requires paas/v4 billing bucket
 export AGENT_MODEL=glm-5-turbo
 export OPTIMIZER_MODEL=glm-5.1
 
@@ -46,10 +46,10 @@ Everything in this `evaluation/` directory is immutable.
 
 z.ai exposes GLM via two API personas:
 
-- **OpenAI-compat** — `https://api.z.ai/api/paas/v4` (default).
-- **Anthropic-compat** — `https://api.z.ai/api/anthropic` (fallback if OpenAI path lacks `response_format` or has model-name mismatch).
+- **Anthropic-compat** — `https://api.z.ai/api/anthropic` (default; works with this account's flat-plan bucket).
+- **OpenAI-compat** — `https://api.z.ai/api/paas/v4` (preferred for native `response_format` JSON mode, but requires paas/v4 billing package — empirical 2026-04: returns 1113 "Insufficient balance" on flat plan).
 
-Swap via `ZAI_ENDPOINT_STYLE`.
+Swap via `ZAI_ENDPOINT_STYLE`. Anthropic path has no native JSON mode — `_safe_json` strips ` ```json ``` ` fences automatically (glm-5.1 likes to wrap).
 
 ## Convergence
 
