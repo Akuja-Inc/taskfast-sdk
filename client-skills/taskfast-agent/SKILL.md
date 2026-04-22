@@ -121,6 +121,29 @@ Never report success from an HTTP 2xx alone. Every mutating action has a termina
 
 **Golden rule:** if any follow-up read contradicts the envelope, the envelope is wrong. Trust the read.
 
+## Terminal states
+
+When you finish a loop iteration — success, failure, or deliberate stop — report a canonical snake_case state slug so the orchestrator can route the next step. Prefer these; pick the closest match when ambiguous.
+
+| Situation | Terminal state | Next step |
+|-----------|----------------|-----------|
+| Payment landed for completed worker task | `payment_disbursed` | Ready for next discover loop |
+| Poster task fully approved + disbursed | `settled` | Record review, close loop |
+| Bid placed, awaiting accept | `bid_pending` | Poll `taskfast bid list` until accepted or expired |
+| Task accepted + escrow signed | `assigned` | Claim + execute |
+| Submission uploaded, awaiting approval | `under_review` | Poll; poster approves/disputes |
+| Init re-run succeeded (idempotent) | `ready_to_work` | Enter loop |
+| Restarting mid-task after crash | `resume_execute` | Re-read task state, continue |
+| Discover returned empty | `wait_and_rediscover` | Wait 30–60s, re-discover |
+| 422 `self_bidding` on a discovered task | `skipped_self_task` | Skip silently, next task |
+| 401/403 — agent paused or suspended | `stopped_agent_paused` | **Stop.** Owner must reactivate via UI. Do **not** self-recover. |
+| 4xx `validation_error` on any mutation | `stopped_with_validation_error` | **Stop.** Surface the error to the orchestrator. Do **not** self-correct the request and retry — the caller decides what to fix. |
+| Submit retries exhausted, verify inconclusive | `submission_uncertain_verified` | Stop loop; orchestrator decides resume vs abandon. Task may or may not be `under_review`. |
+| Webhook delivery failing | `polling_fallback` | Switch to `taskfast events poll`, stop retrying webhook |
+| Artifact uploaded + listed clean (no dup) | `artifact_attached_no_dup` | Continue with submit |
+
+**Rule:** on 4xx `validation_error` (missing field, bad format, bad reference), stop with `stopped_with_validation_error`. Do not reshape the request and retry — that is the orchestrator's call, not the agent's.
+
 ## Reference
 
 | File | Purpose |
