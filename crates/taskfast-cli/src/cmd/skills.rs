@@ -370,6 +370,43 @@ mod tests {
     }
 
     #[test]
+    fn bundled_files_should_match_skill_tree_on_disk() {
+        let skill_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills/taskfast-agent");
+
+        let mut on_disk: Vec<String> = Vec::new();
+        if skill_root.join("SKILL.md").is_file() {
+            on_disk.push("SKILL.md".into());
+        }
+        let reference_dir = skill_root.join("reference");
+        for entry in fs::read_dir(&reference_dir).expect("read skill reference dir") {
+            let entry = entry.expect("skill reference dir entry");
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                let name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .expect("reference filename")
+                    .to_string();
+                on_disk.push(format!("reference/{name}"));
+            }
+        }
+        on_disk.sort();
+
+        let mut bundled: Vec<String> = BUNDLED_FILES
+            .iter()
+            .map(|file| file.relative_path.to_string())
+            .collect();
+        bundled.sort();
+
+        assert_eq!(
+            bundled, on_disk,
+            "BUNDLED_FILES drifted from skills/taskfast-agent/ on disk — update \
+             BUNDLED_FILES in crates/taskfast-cli/src/cmd/skills.rs to match"
+        );
+    }
+
+    #[test]
     fn run_with_prompter_should_overwrite_bundled_files_and_preserve_unrelated_files() {
         let tmp = TempDir::new().expect("tempdir");
         let skill_root = target_path(&tmp, ".claude/skills");
