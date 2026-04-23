@@ -219,14 +219,47 @@ jobs:
           path: |
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
+  # NOTE: release.yml is cargo-dist auto-generated (see header). This job is a
+  # manual addition and must be re-applied after `dist init` regenerates the
+  # file. Generates a CycloneDX SBOM and uploads as artifacts-sbom-cyclonedx so
+  # the host job picks it up via its `artifacts-*` glob and attaches to the
+  # GitHub Release at creation time. Workaround for GitHub's immutable-releases
+  # policy blocking post-publish asset upload.
+  build-sbom:
+    needs:
+      - plan
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    runs-on: "ubuntu-22.04"
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install cargo-cyclonedx --locked --version ^0.5
+      - name: Generate SBOM
+        run: cargo cyclonedx --format json --all
+      - name: Collect SBOM files
+        run: |
+          mkdir -p sbom-out
+          find . -name '*.cdx.json' -not -path './target/*' -exec cp {} sbom-out/ \;
+          ls -la sbom-out/
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: artifacts-sbom-cyclonedx
+          path: sbom-out/*.cdx.json
+          retention-days: 90
+
   # Determines if we should publish/announce
   host:
     needs:
       - plan
       - build-local-artifacts
       - build-global-artifacts
+      - build-sbom
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') && (needs.build-sbom.result == 'skipped' || needs.build-sbom.result == 'success') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
@@ -360,6 +393,7 @@ jobs:
       - plan
       - build-local-artifacts
       - build-global-artifacts
+      - build-sbom
       - host
       - publish-homebrew-formula
       - announce
