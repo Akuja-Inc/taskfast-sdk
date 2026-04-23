@@ -1,7 +1,8 @@
-# Manually-triggered patch-release workflow.
+# Manually-triggered release-bump workflow.
 #
-# Click "Run workflow" in the Actions tab on the `main` branch. CI will:
-#   1. `cargo xtask bump patch` (bumps the 3 synced version sites + Cargo.lock)
+# Click "Run workflow" in the Actions tab on the `main` branch, pick the bump
+# level (patch / minor / major — default patch). CI will:
+#   1. `cargo xtask bump <level>` (bumps the 3 synced version sites + Cargo.lock)
 #   2. commit the diff as `chore(release): vX.Y.Z`
 #   3. tag `taskfast-cli-vX.Y.Z` (annotated — lightweight tags get dropped by
 #      `git push --follow-tags`, which previously broke the 0.2.2 release)
@@ -9,20 +10,30 @@
 #      release.yml (cargo-dist). A default GITHUB_TOKEN push would NOT trigger
 #      another workflow (GitHub anti-loop), hence the PAT.
 #
-# For minor/major releases, or if you prefer local control, run:
-#   cargo xtask bump <minor|major>
+# Prefer local control? Run:
+#   cargo xtask bump <patch|minor|major>
 #   git commit -am "chore(release): vX.Y.Z"
-#   git tag taskfast-cli-vX.Y.Z
+#   git tag -a taskfast-cli-vX.Y.Z -m "Release X.Y.Z"
 #   git push --follow-tags
 #
 # Required secret: RELEASE_PLZ_TOKEN
 #   Fine-grained PAT with `Contents: Read and write` on this repo, owned by a
 #   user/bot that is exempt from branch protection on `main`. Rotate periodically.
 
-name: Release bump (patch)
+name: Release bump
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      level:
+        description: 'Semver level to bump'
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
 # Prevent two clicks racing.
 concurrency:
@@ -39,7 +50,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # PAT (not GITHUB_TOKEN) so the subsequent tag push fires release.yml.
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
@@ -52,8 +63,14 @@ jobs:
           git config user.name 'taskfast-release-bot'
           git config user.email 'taskfast-release-bot@users.noreply.github.com'
 
-      - name: Bump patch version
-        run: cargo xtask bump patch
+      - name: Bump version
+        env:
+          # Passed via env to avoid direct `${{ inputs.* }}` interpolation in
+          # the shell script. The `choice` input is already constrained to
+          # patch/minor/major, but env-var indirection is the documented safe
+          # pattern for workflow inputs.
+          LEVEL: ${{ inputs.level }}
+        run: cargo xtask bump "$LEVEL"
 
       - name: Read new version
         id: version
