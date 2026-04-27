@@ -486,7 +486,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -497,7 +497,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1412,7 +1412,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2332,7 +2332,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2629,11 +2629,11 @@ dependencies = [
 
 [[package]]
 name = "progenitor"
-version = "0.9.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88f54bd2506c3e7b6e45b6ab16500abef551689021264f3be260ef7e295ac327"
+checksum = "d8ba1d77160e6d5c95bdf0792527f76bf528791093fa83015bc2908a0ba9d076"
 dependencies = [
- "progenitor-client",
+ "progenitor-client 0.14.0",
  "progenitor-impl",
  "progenitor-macro",
 ]
@@ -2647,7 +2647,22 @@ dependencies = [
  "bytes",
  "futures-core",
  "percent-encoding",
- "reqwest",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+]
+
+[[package]]
+name = "progenitor-client"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e8a874cf25a33cac7a01b9c1de87bcfbc8aea93f3156d09dcc3bee516a78926"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "percent-encoding",
+ "reqwest 0.13.3",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -2655,9 +2670,9 @@ dependencies = [
 
 [[package]]
 name = "progenitor-impl"
-version = "0.9.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37adc80a94c9cae890e82deeeecc9d8f2a5cb153256caaf1bf0f03611e537214"
+checksum = "f6e349eed84b9a1a6a5dbe478d335e3df73d32a93c5eefe571c9b8cb298aab5d"
 dependencies = [
  "heck",
  "http",
@@ -2677,9 +2692,9 @@ dependencies = [
 
 [[package]]
 name = "progenitor-macro"
-version = "0.9.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc3b2b9f0d5ba58375c5e8e89d5dff949108e234c1d9f22a3336d2be4daaf292"
+checksum = "efa969a1349979c5f64347f204e794781a86d738206d75672e6c9493f5910002"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -2960,6 +2975,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "regress"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "158a764437582235e3501f683b93a0a6f8d825d04a789dbe5ed30b8799b8908a"
+dependencies = [
+ "hashbrown 0.16.1",
+ "memchr",
+]
+
+[[package]]
 name = "rend"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3005,9 +3030,44 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
+ "wasm-streams 0.4.2",
  "web-sys",
  "webpki-roots",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
+dependencies = [
+ "base64",
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "percent-encoding",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-streams 0.5.0",
+ "web-sys",
 ]
 
 [[package]]
@@ -3164,7 +3224,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3642,7 +3702,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3754,7 +3814,7 @@ dependencies = [
  "hex",
  "hmac",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2",
@@ -3794,7 +3854,7 @@ dependencies = [
  "hex",
  "humantime",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.28",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -3824,10 +3884,10 @@ dependencies = [
  "openapiv3",
  "prettyplease",
  "progenitor",
- "progenitor-client",
+ "progenitor-client 0.9.1",
  "rand 0.8.5",
- "regress",
- "reqwest",
+ "regress 0.10.5",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3847,10 +3907,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4228,9 +4288,9 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
 name = "typify"
-version = "0.3.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e03ba3643450cfd95a1aca2e1938fef63c1c1994489337998aff4ad771f21ef8"
+checksum = "bc0b89f47309feaeb23c4509c15c9a04234f7deccef6f96c3bfe95319819a304"
 dependencies = [
  "typify-impl",
  "typify-macro",
@@ -4238,15 +4298,15 @@ dependencies = [
 
 [[package]]
 name = "typify-impl"
-version = "0.3.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bce48219a2f3154aaa2c56cbf027728b24a3c8fe0a47ed6399781de2b3f3eeaf"
+checksum = "fa7b026f540b148b81043c720889dbb942b08659aa8a43f624ac4f04dbfc1861"
 dependencies = [
  "heck",
  "log",
  "proc-macro2",
  "quote",
- "regress",
+ "regress 0.11.1",
  "schemars 0.8.22",
  "semver 1.0.28",
  "serde",
@@ -4258,9 +4318,9 @@ dependencies = [
 
 [[package]]
 name = "typify-macro"
-version = "0.3.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68b5780d745920ed73c5b7447496a9b5c42ed2681a9b70859377aec423ecf02b"
+checksum = "39ed96c57f06ae0839416b986921a98f18b220da63bbb243a8570a00c8492183"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4527,6 +4587,19 @@ name = "wasm-streams"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
 dependencies = [
  "futures-util",
  "js-sys",

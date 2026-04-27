@@ -34,7 +34,7 @@ base64 = "0.22"
 futures = { workspace = true }
 
 [build-dependencies]
-progenitor = "0.9"
+progenitor = "0.14"
 openapiv3 = { version = "2", default-features = false }
 prettyplease = "0.2"
 syn = { version = "2", features = ["full"] }
