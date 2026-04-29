@@ -326,7 +326,7 @@ fn enforce_endpoint_guard(
 /// #62 is deployed across prod + staging.
 ///
 /// Bypassed entirely for [`Environment::Local`] (sandboxed dev) and when
-/// `--allow-custom-endpoints` is set, matching [`enforce_endpoint_guard`].
+/// `--allow-custom-endpoints` is set, matching the F2 endpoint guard.
 pub async fn enforce_server_network_invariant(
     ctx: &Ctx,
     client: &TaskFastClient,

@@ -161,9 +161,8 @@ impl Config {
     ///
     /// Hard-errors with [`ConfigError::LegacyFields`] when the on-disk
     /// JSON still carries any key removed at the current schema version
-    /// (see [`LEGACY_REMOVED_KEYS`]). Stale `api_base`/`network` values
-    /// would otherwise silently outrank the `Environment`-derived
-    /// defaults.
+    /// (currently `api_base` and `network`). Stale values would otherwise
+    /// silently outrank the `Environment`-derived defaults.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let src = match fs::read_to_string(path) {
             Ok(s) => s,
