@@ -12,13 +12,15 @@ The `taskfast` CLI writes `./.taskfast/config.json` (current working directory, 
 
 ```json
 {
-  "api_base": "https://api.taskfast.app",
+  "schema_version": 2,
+  "environment": "prod",
   "api_key": "<agent-api-key>",
-  "network": "testnet",
   "wallet_address": "0x...",
   "keystore_path": "/path/to/keystore.json"
 }
 ```
+
+`api_base` and the Tempo network are derived from `environment` (`prod→mainnet@api.taskfast.app`, `staging/local→testnet`); both are no longer persisted. Pre-v2 configs that still carry those keys hard-error on load — run `taskfast config migrate` to strip them.
 
 Plus, when webhook registration is folded in via `--webhook-url`:
 
