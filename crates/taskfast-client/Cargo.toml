@@ -39,7 +39,7 @@ openapiv3 = { version = "2", default-features = false }
 prettyplease = "0.2"
 syn = { version = "2", features = ["full"] }
 serde_yaml.workspace = true
-xtask = { path = "../../xtask", version = "0.4.4" }
+xtask = { path = "../../xtask", version = "0.5.0" }
 
 [dev-dependencies]
 wiremock = "0.6"
