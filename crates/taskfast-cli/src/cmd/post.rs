@@ -451,19 +451,38 @@ async fn resolve_rpc_url(
         other => CmdError::from(other),
     })?;
     // Runtime invariant — issue #62 (server-side): the env's deployment must
-    // advertise exactly its one network, and nothing else. `--allow-custom-endpoints`
-    // bypasses the `len != 1` check so local-dev mid-migration isn't blocked,
-    // but the entry-must-exist branch below still fires.
+    // advertise exactly its one network, and nothing else.
+    //
+    // Today's deployments still advertise multiple networks per response;
+    // until #62 lands, a `len != 1` mismatch logs a warn and continues.
+    // Set TASKFAST_STRICT_ENV_NETWORK=1 to fail-closed.
+    // `--allow-custom-endpoints` and `Environment::Local` bypass entirely
+    // (matches `enforce_endpoint_guard`).
     let name = network.as_str();
-    if !ctx.allow_custom_endpoints && cfg.networks.len() != 1 {
+    if !ctx.allow_custom_endpoints
+        && ctx.environment != crate::Environment::Local
+        && cfg.networks.len() != 1
+    {
         let advertised: Vec<&str> = cfg.networks.keys().map(String::as_str).collect();
-        return Err(CmdError::Server(format!(
-            "deployment at {} advertises networks {advertised:?}; env {} requires \
-             exactly [{name}]. Server-side fix tracked in issue #62. Pass \
-             --allow-custom-endpoints to bypass.",
-            ctx.base_url(),
-            ctx.environment.as_str(),
-        )));
+        let strict = std::env::var("TASKFAST_STRICT_ENV_NETWORK")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        if strict {
+            return Err(CmdError::Server(format!(
+                "deployment at {} advertises networks {advertised:?}; env {} requires \
+                 exactly [{name}]. Server-side fix tracked in issue #62. Unset \
+                 TASKFAST_STRICT_ENV_NETWORK or pass --allow-custom-endpoints to bypass.",
+                ctx.base_url(),
+                ctx.environment.as_str(),
+            )));
+        }
+        tracing::warn!(
+            api_base = %ctx.base_url(),
+            env = ctx.environment.as_str(),
+            expected = name,
+            advertised = ?advertised,
+            "deployment advertises additional networks; server-side fix tracked in #62. \
+             Set TASKFAST_STRICT_ENV_NETWORK=1 to fail-closed."
+        );
     }
     let entry = cfg.entry(name).map_err(|e| {
         CmdError::Server(format!(

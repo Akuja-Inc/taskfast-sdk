@@ -102,9 +102,6 @@ fn ctx_for(server: &MockServer, config_path: PathBuf) -> Ctx {
         config_path,
         dry_run: false,
         quiet: true,
-        // Wiremock doesn't mount /api/config/network — the runtime
-        // invariant check would otherwise 404 here.
-        allow_custom_endpoints: true,
         ..Default::default()
     }
 }

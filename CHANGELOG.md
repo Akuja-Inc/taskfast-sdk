@@ -21,10 +21,11 @@ that is the authoritative changelog.
   ad-hoc, never-persisted override; non-well-known values still need
   `--allow-custom-endpoints`. Existing configs that carry the removed keys
   hard-error on load with a remediation hint — run `taskfast config migrate`
-  to strip them. A new runtime invariant rejects deployments whose
-  `/api/config/network` advertises a network other than the env's expected
-  one (server-side enforcement of the one-network-per-deployment rule
-  tracked in #62).
+  to strip them. A new runtime invariant logs a `tracing::warn!` when the
+  deployment's `/api/config/network` advertises a network shape other than
+  the env's expected one; set `TASKFAST_STRICT_ENV_NETWORK=1` to fail-closed
+  instead. The default flips to strict in a follow-up release once the
+  server-side one-network-per-deployment fix lands (tracked in #62).
 - **F2 endpoint guard.** `api_base` and `tempo_rpc_url` values that aren't
   one of the well-known TaskFast defaults (prod/staging/local for the API;
   canonical `rpc.tempo.xyz` / `rpc.moderato.tempo.xyz` for the RPC) now
@@ -34,9 +35,9 @@ that is the authoritative changelog.
   from silently redirecting traffic (PAT exfil, fee redirect). Automation
   that points the CLI at a self-hosted API or RPC must set the flag
   explicitly going forward.
-- **F2 mainnet RPC HTTPS.** Plain-HTTP `tempo_rpc_url` on `--network=mainnet`
-  is refused unless the host is loopback. Local anvil/hardhat forks still
-  work.
+- **F2 mainnet RPC HTTPS.** Plain-HTTP `tempo_rpc_url` on a mainnet env
+  (i.e. `--env prod`) is refused unless the host is loopback. Local
+  anvil/hardhat forks still work.
 
 ### Security
 

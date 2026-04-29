@@ -27,10 +27,6 @@ fn ctx_for(server: &MockServer, key: Option<&str>, config_path: PathBuf, dry_run
         config_path,
         dry_run,
         quiet: true,
-        // The wiremock server doesn't mount /api/config/network, and the
-        // ephemeral 127.0.0.1 port isn't well-known. The opt-in matches
-        // the same flag tests/post.rs uses for the same reason.
-        allow_custom_endpoints: true,
         ..Default::default()
     }
 }

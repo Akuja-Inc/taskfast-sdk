@@ -16,9 +16,11 @@ Per-network chain metadata is fetched from `GET /api/config/network` on the Task
 
 ## Runtime invariant
 
-At first server contact, the CLI verifies the deployment advertises **exactly one** network and that it matches the env's expected network. A deployment that advertises both `mainnet` and `testnet` (or the wrong network for the env) is rejected as a deployment misconfiguration. Server-side enforcement of the one-network-per-deployment rule is tracked in [issue #62](https://github.com/Akuja-Inc/taskfast/issues/62).
+At first server contact, the CLI verifies the deployment advertises **exactly one** network and that it matches the env's expected network.
 
-`--allow-custom-endpoints` (or `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`) bypasses this check.
+**Today's mode: warn-only.** Current deployments still serve a multi-network response, so a mismatch logs a `tracing::warn!` and continues. Set `TASKFAST_STRICT_ENV_NETWORK=1` to fail-closed. The default flips to strict in a follow-up CLI release once the server-side one-network-per-deployment fix lands (tracked in [issue #62](https://github.com/Akuja-Inc/taskfast/issues/62)).
+
+`--allow-custom-endpoints` (or `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`) and `--env local` both bypass this check.
 
 ## Per-environment behavior
 

@@ -316,37 +316,65 @@ fn enforce_endpoint_guard(
 /// Runtime cross-system check for the env→network invariant. The
 /// compile-time table in [`Environment::network`] says each env runs
 /// exactly one Tempo network; this verifies that the deployment at
-/// `ctx.base_url()` agrees by inspecting `/api/config/network`. A
-/// deployment that advertises a different (or additional) network is
-/// rejected as a deployment misconfiguration — server-side fix tracked
-/// in issue #62.
+/// `ctx.base_url()` agrees by inspecting `/api/config/network`.
 ///
-/// The `--allow-custom-endpoints` opt-in bypasses the `len != 1` check
-/// so local-dev mid-migration isn't blocked, matching the existing
-/// endpoint-guard escape-hatch policy.
+/// **Default: warn-only.** Today's deployments still advertise multiple
+/// networks in one response (server-side one-network-per-deployment
+/// tracked in #62). Until that lands, a mismatch logs a `tracing::warn!`
+/// and continues. Set `TASKFAST_STRICT_ENV_NETWORK=1` to fail-closed
+/// instead. The default flips to strict in a follow-up CLI release once
+/// #62 is deployed across prod + staging.
+///
+/// Bypassed entirely for [`Environment::Local`] (sandboxed dev) and when
+/// `--allow-custom-endpoints` is set, matching [`enforce_endpoint_guard`].
 pub async fn enforce_server_network_invariant(
     ctx: &Ctx,
     client: &TaskFastClient,
 ) -> Result<(), CmdError> {
-    if ctx.allow_custom_endpoints {
+    if ctx.allow_custom_endpoints || ctx.environment == Environment::Local {
         return Ok(());
     }
     let cfg = client
         .fetch_network_config()
         .await
         .map_err(CmdError::from)?;
-    let expected = ctx.environment.network().as_str();
-    if cfg.networks.len() == 1 && cfg.networks.contains_key(expected) {
+    let strict = std::env::var("TASKFAST_STRICT_ENV_NETWORK")
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    let advertised: Vec<String> = cfg.networks.keys().cloned().collect();
+    check_network_invariant(ctx.environment, ctx.base_url(), &advertised, strict)
+}
+
+/// Pure-logic core of [`enforce_server_network_invariant`]. Split out so
+/// the strict / warn / bypass branches are unit-testable without spinning
+/// up a wiremock server.
+fn check_network_invariant(
+    env: Environment,
+    api_base: &str,
+    advertised: &[String],
+    strict: bool,
+) -> Result<(), CmdError> {
+    let expected = env.network().as_str();
+    if advertised.len() == 1 && advertised[0] == expected {
         return Ok(());
     }
-    let advertised: Vec<&str> = cfg.networks.keys().map(String::as_str).collect();
-    Err(CmdError::Server(format!(
-        "deployment at {} advertises networks {advertised:?}; env {} requires \
-         exactly [{expected}]. Server-side fix tracked in issue #62. Pass \
-         --allow-custom-endpoints to bypass.",
-        ctx.base_url(),
-        ctx.environment.as_str(),
-    )))
+    if strict {
+        return Err(CmdError::Server(format!(
+            "deployment at {api_base} advertises networks {advertised:?}; env {} requires \
+             exactly [{expected}]. Server-side fix tracked in issue #62. Unset \
+             TASKFAST_STRICT_ENV_NETWORK or pass --allow-custom-endpoints to bypass.",
+            env.as_str(),
+        )));
+    }
+    tracing::warn!(
+        api_base = %api_base,
+        env = env.as_str(),
+        expected = expected,
+        advertised = ?advertised,
+        "deployment advertises a different network shape than env requires; \
+         server-side fix tracked in issue #62. Set TASKFAST_STRICT_ENV_NETWORK=1 \
+         to fail-closed."
+    );
+    Ok(())
 }
 
 /// Parse a human-readable duration string from the config file,
@@ -1043,6 +1071,77 @@ mod tests {
         )
         .expect("no api_base = no guard");
         assert!(ctx.api_base.is_none());
+    }
+
+    #[test]
+    fn network_invariant_ok_when_single_advertised_matches() {
+        let res = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["mainnet".into()],
+            true,
+        );
+        assert!(res.is_ok(), "exact match passes strict mode: {res:?}");
+    }
+
+    #[test]
+    fn network_invariant_strict_rejects_wrong_single_network() {
+        let err = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["testnet".into()],
+            true,
+        )
+        .expect_err("strict mode must reject wrong network");
+        match err {
+            CmdError::Server(msg) => {
+                assert!(msg.contains("testnet"), "msg: {msg}");
+                assert!(msg.contains("mainnet"), "msg: {msg}");
+                assert!(msg.contains("issue #62"), "remediation hint: {msg}");
+            }
+            other => panic!("expected Server, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn network_invariant_strict_rejects_extra_advertised() {
+        let err = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["mainnet".into(), "testnet".into()],
+            true,
+        )
+        .expect_err("strict mode must reject len != 1");
+        assert!(matches!(err, CmdError::Server(_)));
+    }
+
+    #[test]
+    fn network_invariant_warn_passes_under_today_server_shape() {
+        // Today's deployments advertise both networks. Warn-only mode
+        // (default) keeps the CLI usable until issue #62 closes.
+        let res = check_network_invariant(
+            Environment::Staging,
+            "https://staging.api.taskfast.app",
+            &["mainnet".into(), "testnet".into()],
+            false,
+        );
+        assert!(
+            res.is_ok(),
+            "non-strict mode must let today's multi-network deployments through: {res:?}"
+        );
+    }
+
+    #[test]
+    fn network_invariant_warn_passes_when_wrong_single_network() {
+        // Even a wrong-single-network advertised should warn-only —
+        // strict mode is opt-in.
+        let res = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["testnet".into()],
+            false,
+        );
+        assert!(res.is_ok(), "non-strict mode warns rather than errors");
     }
 
     #[test]
