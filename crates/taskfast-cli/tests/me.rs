@@ -33,7 +33,7 @@ async fn me_happy_path_returns_profile_readiness_envelope() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "00000000-0000-0000-0000-000000000042",
             "name": "alice",
@@ -44,13 +44,17 @@ async fn me_happy_path_returns_profile_readiness_envelope() {
         .await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "ready_to_work": true,
             "checks": {
                 "api_key": {"status": "complete"},
                 "wallet": {"status": "complete"},
                 "webhook": {"status": "not_configured", "required": false},
+            },
+            "settlement_domain": {
+                "chain_id": 42431,
+                "verifying_contract": "0x0000000000000000000000000000000000000000",
             },
         })))
         .mount(&server)
@@ -77,7 +81,7 @@ async fn me_surfaces_not_ready_verbatim() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "name": "alice",
             "status": "active",
@@ -87,16 +91,20 @@ async fn me_surfaces_not_ready_verbatim() {
         .await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "ready_to_work": false,
             "checks": {
                 "api_key": {"status": "complete"},
                 "wallet": {
                     "status": "missing",
-                    "hint": "POST /api/agents/me/wallet"
+                    "hint": "POST /agents/me/wallet"
                 },
                 "webhook": {"status": "not_configured", "required": false},
+            },
+            "settlement_domain": {
+                "chain_id": 42431,
+                "verifying_contract": "0x0000000000000000000000000000000000000000",
             },
         })))
         .mount(&server)
@@ -117,7 +125,7 @@ async fn me_surfaces_not_ready_verbatim() {
     );
     assert_eq!(
         v["data"]["readiness"]["checks"]["wallet"]["hint"],
-        "POST /api/agents/me/wallet"
+        "POST /agents/me/wallet"
     );
 }
 
@@ -126,7 +134,7 @@ async fn me_maps_401_to_auth_error() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",

@@ -30,7 +30,7 @@ fn sample_config_request() -> WebhookConfigRequest {
 async fn configure_webhook_returns_secret_on_first_creation() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "created_at": "2026-03-23T12:00:00Z",
             "updated_at": "2026-03-23T12:00:00Z",
@@ -53,7 +53,7 @@ async fn configure_webhook_returns_null_secret_on_update() {
     // is null from then on.
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "created_at": "2026-03-23T12:00:00Z",
             "updated_at": "2026-03-23T12:05:00Z",
@@ -74,7 +74,7 @@ async fn configure_webhook_returns_null_secret_on_update() {
 async fn get_webhook_returns_config_with_null_secret() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "created_at": "2026-03-23T12:00:00Z",
             "updated_at": "2026-03-23T12:05:00Z",
@@ -94,7 +94,7 @@ async fn get_webhook_returns_config_with_null_secret() {
 async fn delete_webhook_accepts_204() {
     let server = MockServer::start().await;
     Mock::given(method("DELETE"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;
@@ -106,7 +106,7 @@ async fn delete_webhook_accepts_204() {
 async fn test_webhook_returns_delivery_receipt() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/webhooks/test"))
+        .and(path("/agents/me/webhooks/test"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "success": true,
             "status_code": 200,
@@ -124,7 +124,7 @@ async fn test_webhook_returns_delivery_receipt() {
 async fn subscriptions_roundtrip() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/webhooks/subscriptions"))
+        .and(path("/agents/me/webhooks/subscriptions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "available_event_types": [
                 "task_assigned", "bid_accepted", "payment_disbursed",
@@ -135,7 +135,7 @@ async fn subscriptions_roundtrip() {
         .await;
 
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks/subscriptions"))
+        .and(path("/agents/me/webhooks/subscriptions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "available_event_types": [
                 "task_assigned", "bid_accepted", "payment_disbursed",

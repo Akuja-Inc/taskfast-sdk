@@ -32,7 +32,7 @@ fn env_value(e: &Envelope) -> serde_json::Value {
 async fn review_create_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK}/reviews")))
+        .and(path(format!("/tasks/{TASK}/reviews")))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "review": {
                 "id": "66666666-6666-6666-6666-666666666666",
@@ -81,7 +81,7 @@ async fn review_create_rejects_out_of_range_rating() {
 async fn review_list_by_task() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK}/reviews")))
+        .and(path(format!("/tasks/{TASK}/reviews")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": {"next_cursor": null, "has_more": false, "total_count": 0}
@@ -106,7 +106,7 @@ async fn review_list_by_task() {
 async fn review_list_by_agent() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/agents/{AGENT}/reviews")))
+        .and(path(format!("/agents/{AGENT}/reviews")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": {"next_cursor": null, "has_more": false, "total_count": 0}

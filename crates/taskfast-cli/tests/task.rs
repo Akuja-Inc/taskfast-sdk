@@ -45,7 +45,7 @@ fn paginated(cursor: Option<&str>) -> serde_json::Value {
 async fn list_mine_forwards_status_and_cursor_and_returns_tasks() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/tasks"))
+        .and(path("/agents/me/tasks"))
         .and(query_param("status", "in_progress"))
         .and(query_param("cursor", "abc"))
         .and(query_param("limit", "5"))
@@ -77,7 +77,7 @@ async fn list_mine_forwards_status_and_cursor_and_returns_tasks() {
 async fn list_queue_hits_queue_endpoint() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/queue"))
+        .and(path("/agents/me/queue"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": paginated(None),
@@ -103,7 +103,7 @@ async fn list_queue_hits_queue_endpoint() {
 async fn list_posted_hits_posted_endpoint() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/posted_tasks"))
+        .and(path("/agents/me/posted_tasks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": paginated(None),
@@ -173,7 +173,7 @@ async fn list_mine_defaults_to_active_filter_when_status_absent() {
         "meta": paginated(None),
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/tasks"))
+        .and(path("/agents/me/tasks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .mount(&server)
         .await;
@@ -211,7 +211,7 @@ async fn list_mine_status_all_disables_active_filter() {
         "meta": paginated(None),
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/tasks"))
+        .and(path("/agents/me/tasks"))
         .and(query_param("status", "all"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .mount(&server)
@@ -240,7 +240,7 @@ async fn list_mine_default_filter_over_fetches_to_preserve_limit() {
     // caveat until the server grows an `Active` aggregate.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/tasks"))
+        .and(path("/agents/me/tasks"))
         .and(query_param("limit", "10"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
@@ -275,7 +275,7 @@ async fn list_mine_default_filter_truncates_to_limit() {
         "meta": paginated(None),
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/tasks"))
+        .and(path("/agents/me/tasks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .mount(&server)
         .await;
@@ -299,7 +299,7 @@ async fn list_mine_default_filter_truncates_to_limit() {
 async fn get_returns_task_detail() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK_ID}")))
+        .and(path(format!("/tasks/{TASK_ID}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": TASK_ID,
             "title": "test task",
@@ -344,7 +344,7 @@ async fn get_bad_uuid_is_usage_error_without_hitting_server() {
 async fn get_404_surfaces_as_validation_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK_ID}")))
+        .and(path(format!("/tasks/{TASK_ID}")))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "error": "task_not_found",
             "message": "no task with that id",
@@ -368,7 +368,7 @@ async fn get_404_surfaces_as_validation_error() {
 async fn list_401_surfaces_as_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/tasks"))
+        .and(path("/agents/me/tasks"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -410,7 +410,7 @@ async fn missing_api_key_errors_before_any_http_call() {
 async fn submit_zero_artifact_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/submit")))
+        .and(path(format!("/tasks/{TASK_ID}/submit")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "success": true,
             "task_id": TASK_ID,
@@ -462,7 +462,7 @@ async fn submit_with_artifacts_uploads_each_then_submits() {
     let artifact2_id = "00000000-0000-0000-0000-0000000000f2";
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/artifacts")))
+        .and(path(format!("/tasks/{TASK_ID}/artifacts")))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "id": artifact1_id,
             "filename": "results.json",
@@ -476,7 +476,7 @@ async fn submit_with_artifacts_uploads_each_then_submits() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/artifacts")))
+        .and(path(format!("/tasks/{TASK_ID}/artifacts")))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "id": artifact2_id,
             "filename": "notes.txt",
@@ -489,7 +489,7 @@ async fn submit_with_artifacts_uploads_each_then_submits() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/submit")))
+        .and(path(format!("/tasks/{TASK_ID}/submit")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "success": true,
             "task_id": TASK_ID,
@@ -593,7 +593,7 @@ async fn submit_upload_401_surfaces_as_auth_error() {
     std::fs::write(&p1, b"abc").unwrap();
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/artifacts")))
+        .and(path(format!("/tasks/{TASK_ID}/artifacts")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -623,7 +623,7 @@ async fn submit_upload_401_surfaces_as_auth_error() {
 async fn approve_happy_path_returns_task_id_and_status() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .and(path(format!("/tasks/{TASK_ID}/approve")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "task_id": TASK_ID,
             "status": "complete",
@@ -678,7 +678,7 @@ async fn approve_403_surfaces_as_auth() {
     // code to decide "re-credential" rather than "retry payload".
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .and(path(format!("/tasks/{TASK_ID}/approve")))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
             "error": "not_poster",
             "message": "only the task poster can approve",
@@ -698,7 +698,7 @@ async fn approve_403_surfaces_as_auth() {
 async fn approve_409_surfaces() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .and(path(format!("/tasks/{TASK_ID}/approve")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "wrong_status",
             "message": "task is not in under_review",
@@ -721,7 +721,7 @@ async fn approve_409_surfaces() {
 async fn approve_401_surfaces_as_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/approve")))
+        .and(path(format!("/tasks/{TASK_ID}/approve")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -756,7 +756,7 @@ async fn dispute_happy_path_returns_dispute_block() {
     let server = MockServer::start().await;
     let dispute_id = "00000000-0000-0000-0000-00000000d15b";
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/dispute")))
+        .and(path(format!("/tasks/{TASK_ID}/dispute")))
         .and(wiremock::matchers::body_partial_json(json!({
             "reason": "not what I asked for",
         })))
@@ -846,7 +846,7 @@ async fn dispute_empty_reason_is_usage_error_without_any_http() {
 async fn dispute_409_surfaces() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/dispute")))
+        .and(path(format!("/tasks/{TASK_ID}/dispute")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "already_disputed",
             "message": "dispute exists",
@@ -872,7 +872,7 @@ async fn dispute_409_surfaces() {
 async fn dispute_401_surfaces_as_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/dispute")))
+        .and(path(format!("/tasks/{TASK_ID}/dispute")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -897,7 +897,7 @@ async fn dispute_401_surfaces_as_auth() {
 async fn cancel_happy_path_returns_id_and_status() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/cancel")))
+        .and(path(format!("/tasks/{TASK_ID}/cancel")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": TASK_ID,
             "status": "cancelled",
@@ -946,7 +946,7 @@ async fn cancel_bad_uuid_is_usage_error_without_any_http() {
 async fn cancel_409_surfaces_non_cancellable_state() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/cancel")))
+        .and(path(format!("/tasks/{TASK_ID}/cancel")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "wrong_status",
             "message": "task cannot be cancelled from its current state",
@@ -969,7 +969,7 @@ async fn cancel_409_surfaces_non_cancellable_state() {
 async fn cancel_401_surfaces_as_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/cancel")))
+        .and(path(format!("/tasks/{TASK_ID}/cancel")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",

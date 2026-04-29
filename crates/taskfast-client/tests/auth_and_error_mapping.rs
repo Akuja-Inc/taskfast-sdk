@@ -30,7 +30,7 @@ fn fixture_client(base_url: &str) -> TaskFastClient {
 async fn x_api_key_header_is_injected() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .and(header("x-api-key", "test-key-123"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
         .mount(&server)
@@ -48,7 +48,7 @@ async fn x_api_key_header_is_injected() {
 async fn status_401_maps_to_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
             "error": "invalid_api_key",
             "message": "API key is not recognized",
@@ -68,7 +68,7 @@ async fn status_401_maps_to_auth_error() {
 async fn status_422_maps_to_validation_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
             "error": "missing_field",
             "message": "name is required",
@@ -91,7 +91,7 @@ async fn status_422_maps_to_validation_error() {
 async fn status_429_maps_to_rate_limited_with_retry_after() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(
             ResponseTemplate::new(429)
                 .insert_header("retry-after", "7")
@@ -116,7 +116,7 @@ async fn status_429_maps_to_rate_limited_with_retry_after() {
 async fn status_429_without_retry_after_defaults_to_one_second() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(ResponseTemplate::new(429))
         .mount(&server)
         .await;
@@ -151,7 +151,7 @@ async fn retry_503_exhausts_max_attempts_then_returns_server_error() {
     let server = MockServer::start().await;
     let counter = CountingRespond::default();
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(counter.clone())
         .mount(&server)
         .await;
@@ -210,7 +210,7 @@ async fn retry_recovers_when_upstream_heals() {
         fail_until_attempt: 2,
     };
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(responder.clone())
         .mount(&server)
         .await;
@@ -252,7 +252,7 @@ async fn redirect_is_not_followed_so_api_key_cannot_leak_cross_host() {
     // `target` emits a 302 pointing at `hop`. If the client followed it,
     // `hop` would receive the X-API-Key header.
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(
             ResponseTemplate::new(302).insert_header("location", format!("{}/stolen", hop.uri())),
         )
@@ -288,14 +288,14 @@ async fn fetch_network_config_parses_and_caches() {
                 "networks": {
                     "testnet": {
                         "chain_id": 42431,
-                        "rpc_url": "http://example/api/rpc/testnet",
+                        "rpc_url": "http://example/rpc/testnet",
                         "wss_url": "wss://rpc.tempo-moderato.xyz",
                         "explorer_url": "https://explorer.tempo-moderato.xyz",
                         "default_stablecoin": "PathUSD",
                     },
                     "mainnet": {
                         "chain_id": 4217,
-                        "rpc_url": "http://example/api/rpc/mainnet",
+                        "rpc_url": "http://example/rpc/mainnet",
                         "wss_url": "wss://rpc.tempo.xyz",
                         "explorer_url": "https://explorer.tempo.xyz",
                         "default_stablecoin": null,
@@ -305,7 +305,7 @@ async fn fetch_network_config_parses_and_caches() {
         }
     }
     Mock::given(method("GET"))
-        .and(path("/api/config/network"))
+        .and(path("/config/network"))
         .respond_with(CountingCfg {
             count: counter.clone(),
         })
@@ -316,7 +316,7 @@ async fn fetch_network_config_parses_and_caches() {
     let first = client.fetch_network_config().await.expect("first fetch");
     let testnet = first.entry("testnet").expect("testnet present");
     assert_eq!(testnet.chain_id, 42_431);
-    assert_eq!(testnet.rpc_url, "http://example/api/rpc/testnet");
+    assert_eq!(testnet.rpc_url, "http://example/rpc/testnet");
     let mainnet = first.entry("mainnet").expect("mainnet present");
     assert_eq!(mainnet.chain_id, 4_217);
     assert!(mainnet.default_stablecoin.is_none());
@@ -338,7 +338,7 @@ async fn fetch_network_config_parses_and_caches() {
 async fn post_json_rpc_forwards_body_verbatim() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/rpc/testnet"))
+        .and(path("/rpc/testnet"))
         .and(header("x-api-key", "test-key-123"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "jsonrpc": "2.0",
@@ -369,7 +369,7 @@ async fn post_json_rpc_forwards_body_verbatim() {
 async fn post_json_rpc_429_maps_to_rate_limited_with_retry_after() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/rpc/mainnet"))
+        .and(path("/rpc/mainnet"))
         .respond_with(
             ResponseTemplate::new(429)
                 .insert_header("retry-after", "42")

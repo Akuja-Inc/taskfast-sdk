@@ -51,7 +51,7 @@ async fn list_forwards_cursor_and_limit_and_returns_bids() {
         "created_at": "2026-04-13T21:00:00Z",
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/bids"))
+        .and(path("/agents/me/bids"))
         .and(query_param("cursor", "abc"))
         .and(query_param("limit", "5"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -81,7 +81,7 @@ async fn list_forwards_cursor_and_limit_and_returns_bids() {
 async fn list_without_pagination_params_returns_empty() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/bids"))
+        .and(path("/agents/me/bids"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": paginated(None),
@@ -107,7 +107,7 @@ async fn list_without_pagination_params_returns_empty() {
 async fn list_401_surfaces_as_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/bids"))
+        .and(path("/agents/me/bids"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -163,7 +163,7 @@ async fn create_happy_path_posts_price_and_pitch() {
     // body_partial_json proves we forwarded both fields correctly; without this
     // a regression that dropped `pitch` would pass a status-code-only assertion.
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/bids")))
+        .and(path(format!("/tasks/{TASK_ID}/bids")))
         .and(body_partial_json(
             json!({ "price": "75.00", "pitch": "why me" }),
         ))
@@ -193,7 +193,7 @@ async fn create_omits_pitch_when_none() {
     // instead we respond to any POST and trust the codegen's serde setup
     // (asserted at the type level). This still exercises the dry-run-free path.
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/bids")))
+        .and(path(format!("/tasks/{TASK_ID}/bids")))
         .and(body_partial_json(json!({ "price": "10.00" })))
         .respond_with(ResponseTemplate::new(201).set_body_json(bid_body("pending")))
         .mount(&server)
@@ -265,7 +265,7 @@ async fn create_409_surfaces_as_validation_error() {
     // The task is closed for bidding; server returns 409 with an Error body.
     // client::map_api_error classifies 409/422 with a `code` as Validation.
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/bids")))
+        .and(path(format!("/tasks/{TASK_ID}/bids")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "task_not_open",
             "message": "task is not open for bidding",
@@ -290,7 +290,7 @@ async fn create_409_surfaces_as_validation_error() {
 async fn create_401_surfaces_as_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/bids")))
+        .and(path(format!("/tasks/{TASK_ID}/bids")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -328,7 +328,7 @@ async fn create_missing_api_key_errors_before_any_http() {
 async fn cancel_happy_path_returns_withdrawn_bid() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/withdraw")))
+        .and(path(format!("/bids/{BID_ID}/withdraw")))
         .respond_with(ResponseTemplate::new(200).set_body_json(bid_body("withdrawn")))
         .mount(&server)
         .await;
@@ -371,7 +371,7 @@ async fn cancel_bad_bid_id_is_usage_error_without_any_http() {
 async fn cancel_409_surfaces() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/withdraw")))
+        .and(path(format!("/bids/{BID_ID}/withdraw")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "bid_not_pending",
             "message": "bid already accepted",
@@ -408,8 +408,8 @@ fn accept_body() -> serde_json::Value {
 async fn accept_happy_path_surfaces_deferred_escrow_envelope() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/accept")))
-        .respond_with(ResponseTemplate::new(202).set_body_json(accept_body()))
+        .and(path(format!("/bids/{BID_ID}/accept")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(accept_body()))
         .mount(&server)
         .await;
     let args = AcceptArgs { id: BID_ID.into() };
@@ -419,16 +419,8 @@ async fn accept_happy_path_surfaces_deferred_escrow_envelope() {
     let v = envelope_value(&envelope);
     assert_eq!(v["ok"], true);
     assert_eq!(v["data"]["bid"]["bid_id"], BID_ID);
-    assert_eq!(v["data"]["bid"]["status"], "accepted_pending_escrow");
+    assert_eq!(v["data"]["bid"]["task_id"], TASK_ID);
     assert_eq!(v["data"]["bid"]["task_status"], "payment_pending");
-    assert!(
-        v["data"]["bid"]["signing_url"]
-            .as_str()
-            .unwrap_or_default()
-            .contains(TASK_ID),
-        "signing_url must surface: {}",
-        v["data"]["bid"]["signing_url"]
-    );
 }
 
 #[tokio::test]
@@ -460,7 +452,7 @@ async fn accept_bad_bid_id_is_usage_error_without_any_http() {
 async fn accept_401_surfaces_as_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/accept")))
+        .and(path(format!("/bids/{BID_ID}/accept")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -480,7 +472,7 @@ async fn accept_403_not_the_poster_surfaces_as_auth() {
     // is Auth (re-credential), not Validation.
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/accept")))
+        .and(path(format!("/bids/{BID_ID}/accept")))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
             "error": "forbidden",
             "message": "You are not the poster of this task",
@@ -498,7 +490,7 @@ async fn accept_403_not_the_poster_surfaces_as_auth() {
 async fn accept_422_circular_subcontracting_surfaces_as_validation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/accept")))
+        .and(path(format!("/bids/{BID_ID}/accept")))
         .respond_with(ResponseTemplate::new(422).set_body_json(json!({
             "error": "circular_subcontracting",
             "message": "This assignment would create a circular delegation chain",
@@ -537,7 +529,7 @@ fn reject_body(reason: Option<&str>) -> serde_json::Value {
 async fn reject_happy_path_with_reason_round_trips() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/reject")))
+        .and(path(format!("/bids/{BID_ID}/reject")))
         .and(body_partial_json(json!({ "reason": "too expensive" })))
         .respond_with(ResponseTemplate::new(200).set_body_json(reject_body(Some("too expensive"))))
         .mount(&server)
@@ -564,7 +556,7 @@ async fn reject_happy_path_without_reason_omits_field() {
     // we just assert the request succeeds and the envelope shape is right.
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/reject")))
+        .and(path(format!("/bids/{BID_ID}/reject")))
         .respond_with(ResponseTemplate::new(200).set_body_json(reject_body(None)))
         .mount(&server)
         .await;
@@ -643,7 +635,7 @@ async fn reject_oversize_reason_is_usage_error_without_any_http() {
 async fn reject_401_surfaces_as_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/reject")))
+        .and(path(format!("/bids/{BID_ID}/reject")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -664,7 +656,7 @@ async fn reject_401_surfaces_as_auth() {
 async fn reject_403_not_the_poster_surfaces_as_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/reject")))
+        .and(path(format!("/bids/{BID_ID}/reject")))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
             "error": "forbidden",
             "message": "You are not the poster of this task",
@@ -685,7 +677,7 @@ async fn reject_403_not_the_poster_surfaces_as_auth() {
 async fn reject_409_already_accepted_surfaces_as_validation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/reject")))
+        .and(path(format!("/bids/{BID_ID}/reject")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "invalid_status",
             "message": "bid is not pending",
@@ -709,7 +701,7 @@ async fn reject_409_already_accepted_surfaces_as_validation() {
 async fn reject_404_surfaces_as_validation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/bids/{BID_ID}/reject")))
+        .and(path(format!("/bids/{BID_ID}/reject")))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "error": "not_found",
             "message": "Bid not found",

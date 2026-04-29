@@ -32,7 +32,7 @@ pub enum Environment {
 /// never accepted as a CLI flag. The compile-time mapping in
 /// [`Environment::network`] is the single source of truth; the runtime
 /// invariant in `cmd::enforce_server_network_invariant` cross-checks it
-/// against `/api/config/network`.
+/// against `/config/network`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
     Mainnet,
@@ -64,11 +64,16 @@ impl Environment {
 
     /// Sole TaskFast API base URL for this environment. Total function;
     /// the F2 endpoint-override guard treats anything else as adversarial.
+    ///
+    /// `Local` uses the IPv4 literal `127.0.0.1` rather than `localhost`:
+    /// the well-known-base allowlist matches the bound string verbatim, and
+    /// some dev hosts resolve `localhost` to `::1` first, which then misses
+    /// an IPv4-only `mix phx.server` and confuses the endpoint guard.
     pub fn api_base(self) -> &'static str {
         match self {
             Self::Prod => "https://api.taskfast.app",
             Self::Staging => "https://staging.api.taskfast.app",
-            Self::Local => "http://localhost:4000",
+            Self::Local => "http://127.0.0.1:4000",
         }
     }
 
@@ -182,7 +187,7 @@ mod tests {
             Environment::Staging.api_base(),
             "https://staging.api.taskfast.app"
         );
-        assert_eq!(Environment::Local.api_base(), "http://localhost:4000");
+        assert_eq!(Environment::Local.api_base(), "http://127.0.0.1:4000");
     }
 
     #[test]
@@ -213,7 +218,7 @@ mod tests {
     #[test]
     fn is_well_known_api_base_tolerates_trailing_slash() {
         assert!(is_well_known_api_base("https://api.taskfast.app/"));
-        assert!(is_well_known_api_base("http://localhost:4000/"));
+        assert!(is_well_known_api_base("http://127.0.0.1:4000/"));
     }
 
     #[test]
@@ -245,8 +250,8 @@ mod tests {
     #[test]
     fn accounts_url_passthrough_localhost_with_port() {
         assert_eq!(
-            accounts_url("http://localhost:4000"),
-            "http://localhost:4000/account/tokens"
+            accounts_url("http://127.0.0.1:4000"),
+            "http://127.0.0.1:4000/account/tokens"
         );
     }
 

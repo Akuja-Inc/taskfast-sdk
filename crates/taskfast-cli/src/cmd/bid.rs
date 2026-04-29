@@ -16,7 +16,7 @@ use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
 use taskfast_client::api::types::{
-    BidDetailStatus, BidRejectRequest, BidRejectRequestReason, BidRequest,
+    BidDetailStatus, BidRequest, RejectBidBody, RejectBidBodyReason,
 };
 use taskfast_client::map_api_error;
 use taskfast_client::TaskFastClient;
@@ -277,7 +277,7 @@ async fn reject(ctx: &Ctx, args: RejectArgs) -> CmdResult {
             ));
         }
         Some(s) => Some(
-            BidRejectRequestReason::try_from(s)
+            RejectBidBodyReason::try_from(s)
                 .map_err(|e| CmdError::Usage(format!("--reason invalid: {e}")))?,
         ),
         None => None,
@@ -296,7 +296,7 @@ async fn reject(ctx: &Ctx, args: RejectArgs) -> CmdResult {
     }
 
     let client = ctx.client()?;
-    let body = BidRejectRequest {
+    let body = RejectBidBody {
         reason: reason_field,
     };
     let resp = match client.inner().reject_bid(&bid_id, &body).await {

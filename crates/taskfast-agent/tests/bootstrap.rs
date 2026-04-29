@@ -39,7 +39,7 @@ fn sample_create_request() -> AgentCreateRequest {
 async fn validate_auth_returns_profile_on_200() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000042",
             "name": "alice",
@@ -57,7 +57,7 @@ async fn validate_auth_returns_profile_on_200() {
 async fn validate_auth_401_surfaces_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
             "error": "invalid_api_key", "message": "bad key",
         })))
@@ -74,7 +74,7 @@ async fn validate_auth_401_surfaces_auth_error() {
 async fn create_agent_headless_returns_response_with_api_key() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents"))
+        .and(path("/agents"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000099",
             "name": "alice",
@@ -94,7 +94,7 @@ async fn create_agent_headless_returns_response_with_api_key() {
 async fn create_agent_headless_fails_when_response_omits_api_key() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents"))
+        .and(path("/agents"))
         // 201 but no api_key — server contract violation.
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000099",
@@ -117,7 +117,7 @@ async fn create_agent_headless_fails_when_response_omits_api_key() {
 async fn create_agent_headless_fails_when_api_key_empty_string() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents"))
+        .and(path("/agents"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000099",
             "api_key": "",
@@ -144,7 +144,7 @@ fn sample_wallet_request() -> WalletSetupRequest {
 async fn register_wallet_returns_configured_on_200() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/wallet"))
+        .and(path("/agents/me/wallet"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "payment_method": "tempo",
             "payout_method": "tempo_wallet",
@@ -170,7 +170,7 @@ async fn register_wallet_returns_configured_on_200() {
 async fn register_wallet_treats_409_already_configured_as_idempotent_success() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/wallet"))
+        .and(path("/agents/me/wallet"))
         .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
             "error": "wallet_already_configured",
             "message": "agent already has a tempo wallet configured",
@@ -188,7 +188,7 @@ async fn register_wallet_treats_409_already_configured_as_idempotent_success() {
 async fn register_wallet_propagates_other_validation_errors() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/wallet"))
+        .and(path("/agents/me/wallet"))
         .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
             "error": "invalid_wallet_address",
             "message": "wallet address does not match pattern",
@@ -206,7 +206,7 @@ async fn register_wallet_propagates_other_validation_errors() {
 async fn register_wallet_401_surfaces_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/wallet"))
+        .and(path("/agents/me/wallet"))
         .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -224,13 +224,17 @@ async fn register_wallet_401_surfaces_auth() {
 async fn get_readiness_returns_checks() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "ready_to_work": false,
             "checks": {
                 "api_key":  { "status": "ok" },
                 "wallet":   { "status": "missing", "hint": "POST /agents/me/wallet" },
                 "webhook":  { "status": "ok" },
+            },
+            "settlement_domain": {
+                "chain_id": 42431,
+                "verifying_contract": "0x0000000000000000000000000000000000000000",
             },
         })))
         .mount(&server)

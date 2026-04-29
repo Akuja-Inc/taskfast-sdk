@@ -38,7 +38,7 @@ async fn poll_forwards_cursor_and_limit_and_returns_events() {
         "data": { "reason": "late" },
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .and(query_param("cursor", "abc"))
         .and(query_param("limit", "3"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -66,7 +66,7 @@ async fn poll_forwards_cursor_and_limit_and_returns_events() {
 async fn poll_empty_page_returns_empty_events() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": { "next_cursor": null, "has_more": false, "total_count": 0 },
@@ -93,7 +93,7 @@ async fn poll_empty_page_returns_empty_events() {
 async fn poll_401_surfaces_as_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -136,7 +136,7 @@ async fn ack_posts_and_returns_acked_at() {
     let server = MockServer::start().await;
     let event_id = "00000000-0000-0000-0000-0000000000e1";
     Mock::given(method("POST"))
-        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .and(path(format!("/agents/me/events/{event_id}/ack")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "event_id": event_id,
             "acked_at": "2026-04-16T00:00:00Z",
@@ -164,7 +164,7 @@ async fn ack_404_surfaces_as_validation_not_found() {
     let server = MockServer::start().await;
     let event_id = "00000000-0000-0000-0000-0000000000e2";
     Mock::given(method("POST"))
-        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .and(path(format!("/agents/me/events/{event_id}/ack")))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "error": "not_found",
             "message": "Event not found for this agent",
@@ -191,7 +191,7 @@ async fn ack_422_surfaces_as_validation_invalid_event_id() {
     let server = MockServer::start().await;
     let event_id = "not-a-uuid";
     Mock::given(method("POST"))
-        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .and(path(format!("/agents/me/events/{event_id}/ack")))
         .respond_with(ResponseTemplate::new(422).set_body_json(json!({
             "error": "invalid_event_id",
             "message": "event_id must be a UUID",
@@ -218,7 +218,7 @@ async fn ack_401_surfaces_as_auth_error() {
     let server = MockServer::start().await;
     let event_id = "00000000-0000-0000-0000-0000000000e3";
     Mock::given(method("POST"))
-        .and(path(format!("/api/agents/me/events/{event_id}/ack")))
+        .and(path(format!("/agents/me/events/{event_id}/ack")))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -251,7 +251,7 @@ async fn schema_returns_full_spec_by_default() {
         },
     });
     Mock::given(method("GET"))
-        .and(path("/api/asyncapi.json"))
+        .and(path("/asyncapi.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(spec.clone()))
         .mount(&server)
         .await;
@@ -279,7 +279,7 @@ async fn schema_filters_by_event_key() {
         },
     });
     Mock::given(method("GET"))
-        .and(path("/api/asyncapi.json"))
+        .and(path("/asyncapi.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(spec))
         .mount(&server)
         .await;
@@ -305,7 +305,7 @@ async fn schema_unknown_event_is_validation_error() {
         "components": { "messages": {} },
     });
     Mock::given(method("GET"))
-        .and(path("/api/asyncapi.json"))
+        .and(path("/asyncapi.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(spec))
         .mount(&server)
         .await;
@@ -342,7 +342,7 @@ async fn poll_tolerates_malformed_event_and_surfaces_unparseable() {
         "data": {},
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [good, bad],
             "meta": { "next_cursor": null, "has_more": false, "total_count": 2 },

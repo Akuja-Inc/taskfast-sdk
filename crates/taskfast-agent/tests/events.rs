@@ -49,7 +49,7 @@ fn page(
 async fn list_events_page_passes_cursor_and_limit_as_query_params() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .and(query_param("cursor", "opaque-cursor-abc"))
         .and(query_param("limit", "25"))
         .respond_with(ResponseTemplate::new(200).set_body_json(page(
@@ -99,7 +99,7 @@ impl Respond for Sequence {
 async fn stream_drains_multi_page_backlog_without_sleeping() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(Sequence::new(vec![
             ResponseTemplate::new(200).set_body_json(page(
                 vec![
@@ -151,7 +151,7 @@ async fn stream_sleeps_at_page_tip_then_resumes_with_last_cursor() {
     // Turn 2: cursor=c1 → new event, no more.
     // query_param matchers make the cursor discipline an executable spec.
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .and(wiremock::matchers::query_param_is_missing("cursor"))
         .respond_with(ResponseTemplate::new(200).set_body_json(page(
             vec![event("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "first")],
@@ -162,7 +162,7 @@ async fn stream_sleeps_at_page_tip_then_resumes_with_last_cursor() {
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .and(query_param("cursor", "c1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(page(
             vec![event("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "second")],
@@ -189,7 +189,7 @@ async fn stream_sleeps_at_page_tip_then_resumes_with_last_cursor() {
 async fn stream_surfaces_errors_without_terminating() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(Sequence::new(vec![
             ResponseTemplate::new(500).set_body_json(serde_json::json!({
                 "error": "internal", "message": "boom",
@@ -238,7 +238,7 @@ async fn tolerant_page_surfaces_good_events_alongside_unparseable() {
         "occurred_at": "2026-04-20T00:00:00Z",
     });
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(ResponseTemplate::new(200).set_body_json(page(vec![good, bad], None, false)))
         .mount(&server)
         .await;
@@ -258,7 +258,7 @@ async fn tolerant_page_bails_when_meta_is_broken() {
     // Meta missing has_more -> envelope broken -> bail. We cannot advance
     // the cursor on a malformed envelope, so per-item tolerance doesn't apply.
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/events"))
+        .and(path("/agents/me/events"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "data": [],
             "meta": { "next_cursor": null },

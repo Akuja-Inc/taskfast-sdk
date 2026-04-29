@@ -46,7 +46,7 @@ fn sample_submit_request() -> TaskDraftSubmitRequest {
 async fn create_task_draft_returns_payload_on_201() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "draft_id": "00000000-0000-0000-0000-000000000123",
             "payload_to_sign": "0xdeadbeef",
@@ -73,7 +73,7 @@ async fn create_task_draft_returns_payload_on_201() {
 async fn create_task_draft_422_surfaces_validation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
             "error": "validation_error",
             "message": "poster_wallet_address is required",
@@ -91,7 +91,7 @@ async fn create_task_draft_422_surfaces_validation() {
 async fn create_task_draft_401_surfaces_auth() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -110,7 +110,7 @@ async fn submit_task_draft_returns_task_on_201() {
     let server = MockServer::start().await;
     let draft_id = Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap();
     Mock::given(method("POST"))
-        .and(path(format!("/api/task_drafts/{draft_id}/submit")))
+        .and(path(format!("/task_drafts/{draft_id}/submit")))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000777",
             "status": "open",
@@ -135,7 +135,7 @@ async fn submit_task_draft_bad_signature_surfaces_validation() {
     let server = MockServer::start().await;
     let draft_id = Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap();
     Mock::given(method("POST"))
-        .and(path(format!("/api/task_drafts/{draft_id}/submit")))
+        .and(path(format!("/task_drafts/{draft_id}/submit")))
         .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
             "error": "invalid_signature",
             "message": "signature verification failed",
@@ -154,7 +154,7 @@ async fn submit_task_draft_503_surfaces_server() {
     let server = MockServer::start().await;
     let draft_id = Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap();
     Mock::given(method("POST"))
-        .and(path(format!("/api/task_drafts/{draft_id}/submit")))
+        .and(path(format!("/task_drafts/{draft_id}/submit")))
         .respond_with(ResponseTemplate::new(503).set_body_json(serde_json::json!({
             "error": "platform_wallet_unconfigured",
             "message": "platform wallet not configured",

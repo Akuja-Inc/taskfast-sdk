@@ -18,10 +18,11 @@ use thiserror::Error;
 use crate::config::{Config, ConfigError};
 use crate::envelope::Envelope;
 use crate::exit::ExitCode;
-use crate::{is_well_known_api_base, Environment};
+use crate::{is_well_known_api_base, Environment, Network};
 
 use taskfast_agent::keystore::KeystoreError;
 use taskfast_chains::tempo::SigningError;
+use taskfast_chains::tempo::TEMPO_MAINNET_CHAIN_ID;
 use taskfast_client::{Error as ClientError, TaskFastClient};
 
 pub mod agent;
@@ -214,7 +215,7 @@ impl Ctx {
 
     /// Pick the reqwest client to use for a JSON-RPC URL.
     ///
-    /// Any URL whose prefix is `{api_base}/api/rpc/` is this deployment's
+    /// Any URL whose prefix is `{api_base}/rpc/` is this deployment's
     /// authenticated proxy and **must** be hit with the X-API-Key-bearing
     /// client; otherwise the proxy short-circuits with 401 "missing API key"
     /// before reaching the upstream RPC. Anything else (a bare upstream
@@ -273,12 +274,58 @@ impl Ctx {
     }
 }
 
-/// True when `rpc_url` lives under this deployment's `{api_base}/api/rpc/`
+/// True when `rpc_url` lives under this deployment's `{api_base}/rpc/`
 /// proxy. Used to decide whether the authenticated reqwest client (with the
 /// `X-API-Key` default header) is required for the call.
 pub(crate) fn is_proxy_rpc_url(rpc_url: &str, base_url: &str) -> bool {
-    let prefix = format!("{}/api/rpc/", base_url.trim_end_matches('/'));
+    let prefix = format!("{}/rpc/", base_url.trim_end_matches('/'));
     rpc_url.starts_with(&prefix)
+}
+
+fn is_loopback_url(url: &str) -> bool {
+    match url::Url::parse(url) {
+        Ok(u) => matches!(
+            u.host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
+        ),
+        Err(_) => false,
+    }
+}
+
+pub(crate) fn validate_override_rpc_url(
+    url: &str,
+    network: Network,
+    allow_custom: bool,
+) -> Result<&str, CmdError> {
+    if !allow_custom {
+        return Err(CmdError::Usage(format!(
+            "refusing to use custom tempo_rpc_url {url:?}: pass \
+             --allow-custom-endpoints (or set \
+             TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1) to override. The default \
+             path routes RPC through `{{api_base}}/rpc/{{network}}` \
+             which inherits the api_base endpoint guard."
+        )));
+    }
+
+    let is_plain_http_mainnet =
+        matches!(network, Network::Mainnet) && url.starts_with("http://") && !is_loopback_url(url);
+    if is_plain_http_mainnet {
+        return Err(CmdError::Usage(format!(
+            "refusing plain-HTTP mainnet tempo_rpc_url {url:?}: MITM on a \
+             mainnet RPC can observe the poster wallet and inflate gas \
+             price. Use HTTPS or point at loopback for local testing."
+        )));
+    }
+
+    Ok(url)
+}
+
+pub(crate) fn network_policy_for_chain_id(chain_id: u64) -> Network {
+    if chain_id == TEMPO_MAINNET_CHAIN_ID {
+        Network::Mainnet
+    } else {
+        Network::Testnet
+    }
 }
 
 /// F2 endpoint-override guard. Refuses to run when the effective
@@ -316,7 +363,7 @@ fn enforce_endpoint_guard(
 /// Runtime cross-system check for the env→network invariant. The
 /// compile-time table in [`Environment::network`] says each env runs
 /// exactly one Tempo network; this verifies that the deployment at
-/// `ctx.base_url()` agrees by inspecting `/api/config/network`.
+/// `ctx.base_url()` agrees by inspecting `/config/network`.
 ///
 /// **Default: warn-only.** Today's deployments still advertise multiple
 /// networks in one response (server-side one-network-per-deployment
@@ -614,12 +661,12 @@ mod tests {
         let base = "https://staging.api.taskfast.app";
         // Proxy URL — must use authenticated client.
         assert!(is_proxy_rpc_url(
-            "https://staging.api.taskfast.app/api/rpc/testnet",
+            "https://staging.api.taskfast.app/rpc/testnet",
             base
         ));
         // Trailing slash on base must not break the prefix match.
         assert!(is_proxy_rpc_url(
-            "https://staging.api.taskfast.app/api/rpc/mainnet",
+            "https://staging.api.taskfast.app/rpc/mainnet",
             "https://staging.api.taskfast.app/"
         ));
         // Bare upstream Tempo gateway — bare client is correct (no
@@ -628,13 +675,13 @@ mod tests {
         // Same host but a different path is NOT the proxy — don't
         // attach the API key on unrelated routes.
         assert!(!is_proxy_rpc_url(
-            "https://staging.api.taskfast.app/api/task_drafts",
+            "https://staging.api.taskfast.app/task_drafts",
             base
         ));
         // Different host, even one that pretends to be a proxy path,
         // must not pick up the authenticated client.
         assert!(!is_proxy_rpc_url(
-            "https://attacker.example/api/rpc/testnet",
+            "https://attacker.example/rpc/testnet",
             base
         ));
     }
@@ -658,7 +705,7 @@ mod tests {
         for (env, expected) in [
             (Environment::Prod, "https://api.taskfast.app"),
             (Environment::Staging, "https://staging.api.taskfast.app"),
-            (Environment::Local, "http://localhost:4000"),
+            (Environment::Local, "http://127.0.0.1:4000"),
         ] {
             let ctx = Ctx {
                 api_key: None,

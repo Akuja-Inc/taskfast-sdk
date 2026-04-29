@@ -106,7 +106,7 @@ fn readiness_json() -> Value {
 
 async fn mount_task_get(server: &MockServer, body: Value) {
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK_ID}")))
+        .and(path(format!("/tasks/{TASK_ID}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .mount(server)
         .await;
@@ -114,7 +114,7 @@ async fn mount_task_get(server: &MockServer, body: Value) {
 
 async fn mount_readiness(server: &MockServer) {
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(readiness_json()))
         .mount(server)
         .await;
@@ -128,7 +128,7 @@ async fn settle_happy_path_returns_settled_status() {
     mount_task_get(&server, task_detail_json()).await;
     mount_readiness(&server).await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/settle")))
+        .and(path(format!("/tasks/{TASK_ID}/settle")))
         // Signature shape is validated by the generated newtype regex; we
         // assert the key is present rather than pinning a specific value
         // (it depends on the random signer).
@@ -183,7 +183,7 @@ async fn settle_403_not_poster_maps_to_auth() {
     mount_task_get(&server, task_detail_json()).await;
     mount_readiness(&server).await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/settle")))
+        .and(path(format!("/tasks/{TASK_ID}/settle")))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
             "error": "forbidden",
             "detail": "caller is not the task poster",
@@ -208,7 +208,7 @@ async fn settle_409_already_settled_maps_to_validation() {
     mount_task_get(&server, task_detail_json()).await;
     mount_readiness(&server).await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/settle")))
+        .and(path(format!("/tasks/{TASK_ID}/settle")))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({
             "error": "ineligible",
             "detail": "task already settled",
@@ -231,7 +231,7 @@ async fn settle_422_signer_mismatch_maps_to_validation() {
     mount_task_get(&server, task_detail_json()).await;
     mount_readiness(&server).await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK_ID}/settle")))
+        .and(path(format!("/tasks/{TASK_ID}/settle")))
         .respond_with(ResponseTemplate::new(422).set_body_json(json!({
             "code": "signer_mismatch",
             "error": "recovered signer does not match agent wallet",
@@ -423,16 +423,18 @@ async fn settle_wallet_address_mismatch_is_usage_error() {
 }
 
 #[tokio::test]
-async fn settle_missing_settlement_domain_is_usage_error() {
-    // Server returning readiness without a settlement_domain means it isn't
-    // configured for on-chain settlement. Bail locally with a helpful hint
-    // instead of signing with a zero-initialized domain and getting 422.
+async fn settle_missing_settlement_domain_decodes_as_error() {
+    // settlement_domain is now a required field on AgentReadiness — a server
+    // omitting it is a contract violation, surfaced as a Decode error rather
+    // than a friendly Usage hint. Verifies the decode-error path so a future
+    // server regression that drops the field doesn't silently sign with a
+    // zero-initialized domain.
     let server = MockServer::start().await;
     let keys = fresh_keys();
 
     mount_task_get(&server, task_detail_json()).await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "ready_to_work": true,
             "checks": {
@@ -440,7 +442,7 @@ async fn settle_missing_settlement_domain_is_usage_error() {
                 "wallet": { "status": "complete" },
                 "webhook": { "status": "complete" },
             },
-            // settlement_domain deliberately omitted
+            // settlement_domain deliberately omitted — server contract violation
         })))
         .mount(&server)
         .await;
@@ -450,10 +452,10 @@ async fn settle_missing_settlement_domain_is_usage_error() {
         .expect_err("missing settlement_domain must fail locally");
 
     match err {
-        CmdError::Usage(msg) => assert!(
+        CmdError::Decode(msg) => assert!(
             msg.contains("settlement_domain"),
-            "expected settlement_domain message, got: {msg}"
+            "expected settlement_domain in decode message, got: {msg}"
         ),
-        other => panic!("expected Usage, got {other:?}"),
+        other => panic!("expected Decode, got {other:?}"),
     }
 }

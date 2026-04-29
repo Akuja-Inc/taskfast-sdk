@@ -41,7 +41,7 @@ async fn discover_returns_task_list_envelope() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/tasks"))
+        .and(path("/tasks"))
         .and(query_param("status", "open"))
         .and(query_param("assignment_type", "open"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -69,7 +69,7 @@ async fn discover_returns_task_list_envelope() {
 async fn discover_401_maps_to_auth() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/tasks"))
+        .and(path("/tasks"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({"error": "nope"})))
         .mount(&server)
         .await;

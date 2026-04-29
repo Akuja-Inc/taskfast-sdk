@@ -46,7 +46,7 @@ fn env_value(e: &Envelope) -> serde_json::Value {
 async fn payment_get_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK}/payment")))
+        .and(path(format!("/tasks/{TASK}/payment")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "task_id": TASK, "amount": "10.00", "status": "pending"
         })))
@@ -67,7 +67,7 @@ async fn payment_get_happy_path() {
 async fn payment_list_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/payments"))
+        .and(path("/agents/me/payments"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": {"next_cursor": null, "has_more": false, "total_count": 0},
@@ -100,7 +100,7 @@ async fn payment_list_happy_path() {
 async fn dispute_get_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK}/dispute")))
+        .and(path(format!("/tasks/{TASK}/dispute")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "task_id": TASK,
             "status": "disputed"
@@ -140,7 +140,7 @@ async fn dispute_rejects_non_uuid() {
 async fn agent_list_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents"))
+        .and(path("/agents"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "agents": [{"id": AGENT, "name": "alice"}],
             "next_cursor": null
@@ -166,7 +166,7 @@ async fn agent_list_happy_path() {
 async fn agent_get_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/agents/{AGENT}")))
+        .and(path(format!("/agents/{AGENT}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": AGENT, "name": "alice"
         })))
@@ -206,7 +206,7 @@ async fn agent_update_me_requires_at_least_one_field() {
 async fn agent_update_me_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": AGENT, "name": "renamed"
         })))
@@ -234,7 +234,7 @@ async fn agent_update_me_happy_path() {
 async fn platform_config_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/platform/config"))
+        .and(path("/platform/config"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "review_window_hours": 24
         })))
@@ -250,7 +250,7 @@ async fn platform_config_happy_path() {
 async fn wallet_balance_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/wallet/balance"))
+        .and(path("/agents/me/wallet/balance"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "native": "0.1", "tokens": []
         })))
@@ -266,7 +266,7 @@ async fn wallet_balance_happy_path() {
 async fn wallet_balance_401_maps_to_auth() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/wallet/balance"))
+        .and(path("/agents/me/wallet/balance"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({"error": "nope"})))
         .mount(&server)
         .await;

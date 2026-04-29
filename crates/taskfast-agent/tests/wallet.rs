@@ -22,7 +22,7 @@ fn client(server: &MockServer) -> TaskFastClient {
 async fn register_wallet_returns_setup_response_on_200() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/wallet"))
+        .and(path("/agents/me/wallet"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "payment_method": "tempo",
             "payout_method": "tempo_wallet",
@@ -99,7 +99,7 @@ fn balance_body(hex: &str) -> serde_json::Value {
 async fn poll_balance_returns_once_threshold_is_met() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/wallet/balance"))
+        .and(path("/agents/me/wallet/balance"))
         .respond_with(Sequence::new(vec![
             ResponseTemplate::new(200).set_body_json(balance_body("0x0")),
             ResponseTemplate::new(200).set_body_json(balance_body("0x0")),
@@ -123,7 +123,7 @@ async fn poll_balance_returns_once_threshold_is_met() {
 async fn poll_balance_times_out_when_balance_stays_zero() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/wallet/balance"))
+        .and(path("/agents/me/wallet/balance"))
         .respond_with(ResponseTemplate::new(200).set_body_json(balance_body("0x0")))
         .mount(&server)
         .await;
@@ -147,7 +147,7 @@ async fn poll_balance_surfaces_server_decode_errors() {
     // and we surface the error rather than spinning forever.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/wallet/balance"))
+        .and(path("/agents/me/wallet/balance"))
         .respond_with(ResponseTemplate::new(200).set_body_json(balance_body("0xZZZ")))
         .mount(&server)
         .await;

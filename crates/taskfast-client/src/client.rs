@@ -47,7 +47,7 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub struct TaskFastClient {
     inner: api::Client,
     policy: RetryPolicy,
-    /// Per-client cache of the public `GET /api/config/network` payload.
+    /// Per-client cache of the public `GET /config/network` payload.
     /// Fetched lazily on first access; immutable per deployment, so a
     /// process-lifetime cache is sufficient.
     network_cfg: OnceCell<NetworkConfigResponse>,
@@ -59,9 +59,7 @@ impl TaskFastClient {
     /// sensitive so it won't appear in debug traces.
     ///
     /// `base_url` is the API host (e.g. `https://api.taskfast.app`). The
-    /// spec's server prefix (`/api`) is appended here — progenitor bakes
-    /// the unprefixed path keys from the spec into generated code, so the
-    /// prefix must be carried on the baseurl or every endpoint is off by one.
+    /// generated client appends the unprefixed path keys from the spec.
     /// Callers pass hosts, not versioned paths; a trailing `/` is tolerated.
     pub fn from_api_key(base_url: &str, api_key: &str) -> Result<Self> {
         let mut value = HeaderValue::from_str(api_key)
@@ -84,7 +82,7 @@ impl TaskFastClient {
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
-        let resolved = format!("{}/api", base_url.trim_end_matches('/'));
+        let resolved = base_url.trim_end_matches('/').to_owned();
 
         Ok(Self {
             inner: api::Client::new_with_client(&resolved, http),
@@ -95,7 +93,7 @@ impl TaskFastClient {
 
     /// Underlying reqwest::Client, pre-configured with the `X-API-Key` header.
     /// Lets callers build requests outside the progenitor-generated surface
-    /// (e.g. to forward a JSON-RPC body to `POST /api/rpc/{network}` via the
+    /// (e.g. to forward a JSON-RPC body to `POST /rpc/{network}` via the
     /// same connection pool + default headers).
     pub fn http_client(&self) -> reqwest::Client {
         self.inner.client().clone()
@@ -198,7 +196,7 @@ impl TaskFastClient {
         }
     }
 
-    /// `GET /api/config/network` — per-network chain metadata.
+    /// `GET /config/network` — per-network chain metadata.
     ///
     /// Public endpoint, no auth required; the `X-API-Key` header attached by
     /// `from_api_key` is harmless on the server side. Result is cached on
@@ -207,7 +205,7 @@ impl TaskFastClient {
     /// redeploy to take effect).
     ///
     /// Each entry's `rpc_url` points at this same deployment's authenticated
-    /// `POST /api/rpc/{network}` proxy, NOT the upstream Tempo gateway.
+    /// `POST /rpc/{network}` proxy, NOT the upstream Tempo gateway.
     pub async fn fetch_network_config(&self) -> Result<&NetworkConfigResponse> {
         self.network_cfg
             .get_or_try_init(|| async {
@@ -222,7 +220,7 @@ impl TaskFastClient {
             .await
     }
 
-    /// `POST /api/rpc/{network}` — forward a JSON-RPC call through the
+    /// `POST /rpc/{network}` — forward a JSON-RPC call through the
     /// operator's upstream proxy.
     ///
     /// `network` is the key into the `fetch_network_config` map
@@ -326,7 +324,7 @@ pub async fn map_api_error(err: api::Error<()>) -> Error {
     }
 }
 
-/// Per-network chain configuration returned by `GET /api/config/network`.
+/// Per-network chain configuration returned by `GET /config/network`.
 ///
 /// Keys of `networks` are network names (`"testnet"`, `"mainnet"`);
 /// networks the deployment does not support are simply absent.
@@ -356,9 +354,7 @@ impl NetworkConfigResponse {
             .map(|(name, entry)| (name.as_str(), entry))
             .ok_or_else(|| Error::Validation {
                 code: "unknown_chain_id".to_string(),
-                message: format!(
-                    "no network in /api/config/network advertises chain_id={chain_id}"
-                ),
+                message: format!("no network in /config/network advertises chain_id={chain_id}"),
             })
     }
 }
@@ -369,7 +365,7 @@ pub struct NetworkConfigEntry {
     /// EVM chain ID (e.g. `4217` for Tempo mainnet, `42_431` for moderato testnet).
     pub chain_id: i64,
     /// Authenticated JSON-RPC proxy URL on this deployment
-    /// (`{api_base}/api/rpc/{network}`). NOT the upstream Tempo gateway.
+    /// (`{api_base}/rpc/{network}`). NOT the upstream Tempo gateway.
     pub rpc_url: String,
     /// WebSocket JSON-RPC URL on the native Tempo gateway (no proxy).
     pub wss_url: String,

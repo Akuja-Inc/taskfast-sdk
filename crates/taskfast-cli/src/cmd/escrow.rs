@@ -28,7 +28,7 @@ use clap::Parser;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::{CmdError, CmdResult, Ctx};
+use super::{network_policy_for_chain_id, validate_override_rpc_url, CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
 
 use taskfast_agent::bootstrap;
@@ -42,7 +42,7 @@ use taskfast_client::map_api_error;
 
 /// Tempo chain IDs — must match `DistributionDomain::mainnet`/`testnet`.
 /// Used by the network-aware receipt-timeout default. RPC URLs are no
-/// longer hardcoded here; they come from `GET /api/config/network`.
+/// longer hardcoded here; they come from `GET /config/network`.
 const TEMPO_MAINNET_CHAIN_ID: i64 = 4217;
 const TEMPO_TESTNET_CHAIN_ID: i64 = 42_431;
 
@@ -97,7 +97,7 @@ pub struct SignArgs {
 
     /// Tempo RPC override. Defaults to the deployment's authenticated
     /// proxy URL for `params.chain_id` (reverse-looked-up in the
-    /// `GET /api/config/network` map returned by the backend).
+    /// `GET /config/network` map returned by the backend).
     #[arg(long, env = "TEMPO_RPC_URL")]
     pub rpc_url: Option<String>,
 
@@ -151,28 +151,14 @@ async fn sign(ctx: &Ctx, args: SignArgs) -> CmdResult {
     let readiness = bootstrap::get_readiness(&client)
         .await
         .map_err(CmdError::from)?;
-    let domain_spec = readiness.settlement_domain.ok_or_else(|| {
-        CmdError::Usage(
-            "readiness has no settlement_domain — server is not configured for settlement".into(),
-        )
-    })?;
+    let domain_spec = readiness.settlement_domain;
     if domain_spec.chain_id != params.chain_id {
         return Err(CmdError::Decode(format!(
             "readiness chain_id={} disagrees with escrow params chain_id={}",
             domain_spec.chain_id, params.chain_id
         )));
     }
-    let verifying_contract_str = domain_spec
-        .verifying_contract
-        .as_ref()
-        .map(|v| v.to_string())
-        .ok_or_else(|| {
-            CmdError::Usage(
-                "readiness.settlement_domain.verifying_contract is null; \
-                 server has no TaskEscrow contract configured"
-                    .into(),
-            )
-        })?;
+    let verifying_contract_str = domain_spec.verifying_contract.to_string();
     let verifying_contract: Address = verifying_contract_str.parse().map_err(|e| {
         CmdError::Decode(format!(
             "readiness returned invalid verifying_contract `{verifying_contract_str}`: {e}"
@@ -330,12 +316,17 @@ async fn sign(ctx: &Ctx, args: SignArgs) -> CmdResult {
     };
 
     // Resolve RPC URL. Override flows to a bare upstream gateway; default
-    // path pulls the deployment's proxy URL from `GET /api/config/network`
+    // path pulls the deployment's proxy URL from `GET /config/network`
     // (reverse-lookup by chain_id, so the selected entry matches the
     // server-returned escrow params). The proxy URL is sanity-checked to
     // live under the authenticated api_base — catches a misconfigured (or
     // malicious) deployment returning an off-host upstream.
     let (rpc_url, _via_proxy) = if let Some(ref url) = args.rpc_url {
+        validate_override_rpc_url(
+            url,
+            network_policy_for_chain_id(chain_id_u64),
+            ctx.allow_custom_endpoints,
+        )?;
         (url.clone(), false)
     } else {
         let cfg = client.fetch_network_config().await.map_err(|e| {
@@ -348,7 +339,7 @@ async fn sign(ctx: &Ctx, args: SignArgs) -> CmdResult {
                 params.chain_id
             ))
         })?;
-        let expected_prefix = format!("{}/api/rpc/", ctx.base_url().trim_end_matches('/'));
+        let expected_prefix = format!("{}/rpc/", ctx.base_url().trim_end_matches('/'));
         if !entry.rpc_url.starts_with(&expected_prefix) {
             return Err(CmdError::Server(format!(
                 "deployment at {} returned rpc_url {:?} for chain_id={}, \
@@ -401,7 +392,7 @@ async fn sign(ctx: &Ctx, args: SignArgs) -> CmdResult {
     let total_required = deposit
         .checked_add(platform_fee)
         .ok_or_else(|| CmdError::Decode("deposit + platform_fee overflow U256".into()))?;
-    // Pick the http client by URL prefix (any URL on `{api_base}/api/rpc/`
+    // Pick the http client by URL prefix (any URL on `{api_base}/rpc/`
     // is our authenticated proxy and needs `X-API-Key`); see
     // `Ctx::rpc_http_client` for the rationale. A `--rpc-url` override that
     // happens to point at the proxy still gets the authenticated client.

@@ -56,9 +56,9 @@ fn base_args(wallet_address: Option<String>, keystore: Option<String>) -> Args {
     }
 }
 
-/// Mount `GET /api/config/network` so the runtime path's fetch of the
+/// Mount `GET /config/network` so the runtime path's fetch of the
 /// deployment's proxy URL succeeds. Returns the testnet rpc_url that will
-/// be picked (i.e. `<api_base>/api/rpc/testnet`) so callers can point the
+/// be picked (i.e. `<api_base>/rpc/testnet`) so callers can point the
 /// RPC proxy mocks at it if they need to.
 async fn mount_network_config_mock(server: &MockServer) -> String {
     let uri = server.uri();
@@ -66,14 +66,14 @@ async fn mount_network_config_mock(server: &MockServer) -> String {
         "networks": {
             "testnet": {
                 "chain_id": 42431,
-                "rpc_url": format!("{uri}/api/rpc/testnet"),
+                "rpc_url": format!("{uri}/rpc/testnet"),
                 "wss_url": "wss://testnet.example.invalid",
                 "explorer_url": "https://explorer-testnet.example.invalid",
                 "default_stablecoin": "PathUSD"
             },
             "mainnet": {
                 "chain_id": 4217,
-                "rpc_url": format!("{uri}/api/rpc/mainnet"),
+                "rpc_url": format!("{uri}/rpc/mainnet"),
                 "wss_url": "wss://mainnet.example.invalid",
                 "explorer_url": "https://explorer.example.invalid",
                 "default_stablecoin": null
@@ -81,11 +81,11 @@ async fn mount_network_config_mock(server: &MockServer) -> String {
         }
     });
     Mock::given(method("GET"))
-        .and(path("/api/config/network"))
+        .and(path("/config/network"))
         .respond_with(ResponseTemplate::new(200).set_body_json(payload))
         .mount(server)
         .await;
-    format!("{uri}/api/rpc/testnet")
+    format!("{uri}/rpc/testnet")
 }
 
 /// Mount all four JSON-RPC methods the sign-and-broadcast path needs.
@@ -157,7 +157,7 @@ async fn post_happy_path_end_to_end() {
     let tx_hash_hex = format!("0x{}", "aa".repeat(32));
 
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "draft_id": draft_id,
             "payload_to_sign": calldata_hex,
@@ -167,7 +167,7 @@ async fn post_happy_path_end_to_end() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/task_drafts/{draft_id}/submit")))
+        .and(path(format!("/task_drafts/{draft_id}/submit")))
         .and(body_partial_json(
             json!({ "signature": tx_hash_hex.clone() }),
         ))
@@ -222,12 +222,12 @@ async fn post_dry_run_short_circuits_without_any_http() {
     assert_eq!(v["data"]["title"], "test task");
     assert_eq!(v["data"]["assignment_type"], "open");
     // Dry-run predicts the proxy URL locally (no HTTP); shape is
-    // `{api_base}/api/rpc/{network}`.
+    // `{api_base}/rpc/{network}`.
     assert!(
         v["data"]["rpc_url"]
             .as_str()
             .unwrap()
-            .ends_with("/api/rpc/testnet"),
+            .ends_with("/rpc/testnet"),
         "dry-run rpc_url: {}",
         v["data"]["rpc_url"]
     );
@@ -282,7 +282,7 @@ async fn post_prepare_401_surfaces_as_auth_error() {
     let api_server = MockServer::start().await;
     let _ = mount_network_config_mock(&api_server).await;
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -312,7 +312,7 @@ async fn post_keystore_address_mismatch_is_usage_error() {
     let draft_id = uuid::Uuid::new_v4();
     let calldata_hex = format!("0x{}", "00".repeat(4 + 64));
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "draft_id": draft_id,
             "payload_to_sign": calldata_hex,
@@ -361,7 +361,7 @@ async fn post_rejects_non_allowlisted_fee_token() {
     let attacker_token = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
 
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "draft_id": draft_id,
             "payload_to_sign": calldata_hex,
@@ -446,7 +446,7 @@ async fn post_forwards_completion_criteria() {
     // body_partial_json matches on a subset — this asserts the field is
     // present with the expected check_type without over-constraining order.
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .and(body_partial_json(json!({
             "completion_criteria": [{"check_type": "regex"}]
         })))
@@ -459,7 +459,7 @@ async fn post_forwards_completion_criteria() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/task_drafts/{draft_id}/submit")))
+        .and(path(format!("/task_drafts/{draft_id}/submit")))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "id": task_id,
             "status": "open",
@@ -550,7 +550,7 @@ async fn post_criteria_file_merges_with_inline() {
 
     // File entry goes first, inline second — assert both land in order.
     Mock::given(method("POST"))
-        .and(path("/api/task_drafts"))
+        .and(path("/task_drafts"))
         .and(body_partial_json(json!({
             "completion_criteria": [
                 {"check_type": "file_exists", "description": "from file"},
@@ -565,7 +565,7 @@ async fn post_criteria_file_merges_with_inline() {
         .mount(&api_server)
         .await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/task_drafts/{draft_id}/submit")))
+        .and(path(format!("/task_drafts/{draft_id}/submit")))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "id": task_id,
             "status": "open",

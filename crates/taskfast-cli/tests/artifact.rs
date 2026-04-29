@@ -33,7 +33,7 @@ fn env_value(e: &Envelope) -> serde_json::Value {
 async fn artifact_list_happy_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK}/artifacts")))
+        .and(path(format!("/tasks/{TASK}/artifacts")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [{
                 "id": ART,
@@ -66,7 +66,7 @@ async fn artifact_list_happy_path() {
 async fn artifact_delete_404_maps_to_server() {
     let server = MockServer::start().await;
     Mock::given(method("DELETE"))
-        .and(path(format!("/api/tasks/{TASK}/artifacts/{ART}")))
+        .and(path(format!("/tasks/{TASK}/artifacts/{ART}")))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({"error": "gone"})))
         .mount(&server)
         .await;

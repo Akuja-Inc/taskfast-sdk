@@ -36,6 +36,7 @@ fn ctx_for(server: &MockServer, key: Option<&str>) -> Ctx {
         config_path: std::path::PathBuf::from("/dev/null"),
         dry_run: false,
         quiet: true,
+        allow_custom_endpoints: true,
         ..Default::default()
     }
 }
@@ -80,6 +81,10 @@ fn base_args(keys: &Keys) -> SignArgs {
 }
 
 fn escrow_params_json() -> Value {
+    escrow_params_json_with_chain_id(CHAIN_ID)
+}
+
+fn escrow_params_json_with_chain_id(chain_id: u64) -> Value {
     json!({
         "bid_id": BID_ID,
         "task_id": TASK_ID,
@@ -89,7 +94,7 @@ fn escrow_params_json() -> Value {
         "task_escrow_contract": TASK_ESCROW,
         "token_address": TOKEN_ADDR,
         "platform_wallet": PLATFORM_WALLET,
-        "chain_id": CHAIN_ID as i64,
+        "chain_id": chain_id as i64,
         "decimals": 6,
         "memo_text": null,
         "memo_hash": null,
@@ -97,6 +102,10 @@ fn escrow_params_json() -> Value {
 }
 
 fn readiness_json() -> Value {
+    readiness_json_with_chain_id(CHAIN_ID)
+}
+
+fn readiness_json_with_chain_id(chain_id: u64) -> Value {
     json!({
         "ready_to_work": true,
         "checks": {
@@ -105,7 +114,7 @@ fn readiness_json() -> Value {
             "webhook": { "status": "complete" },
         },
         "settlement_domain": {
-            "chain_id": CHAIN_ID as i64,
+            "chain_id": chain_id as i64,
             "verifying_contract": TASK_ESCROW,
         },
     })
@@ -113,7 +122,7 @@ fn readiness_json() -> Value {
 
 async fn mount_params(server: &MockServer, body: Value, status: u16) {
     Mock::given(method("GET"))
-        .and(path(format!("/api/bids/{BID_ID}/escrow/params")))
+        .and(path(format!("/bids/{BID_ID}/escrow/params")))
         .respond_with(ResponseTemplate::new(status).set_body_json(body))
         .mount(server)
         .await;
@@ -121,8 +130,18 @@ async fn mount_params(server: &MockServer, body: Value, status: u16) {
 
 async fn mount_readiness(server: &MockServer) {
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(readiness_json()))
+        .mount(server)
+        .await;
+}
+
+async fn mount_readiness_with_chain_id(server: &MockServer, chain_id: u64) {
+    Mock::given(method("GET"))
+        .and(path("/agents/me/readiness"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(readiness_json_with_chain_id(chain_id)),
+        )
         .mount(server)
         .await;
 }
@@ -266,6 +285,53 @@ async fn escrow_sign_dry_run_emits_signature_and_calldata_without_rpc() {
 }
 
 #[tokio::test]
+async fn escrow_sign_rejects_custom_rpc_without_opt_in() {
+    let server = MockServer::start().await;
+    let keys = fresh_keys();
+    mount_params(&server, escrow_params_json(), 200).await;
+    mount_readiness(&server).await;
+
+    let mut ctx = ctx_for(&server, Some("test-key"));
+    ctx.allow_custom_endpoints = false;
+    ctx.dry_run = true;
+
+    let err = run(&ctx, Command::Sign(base_args(&keys)))
+        .await
+        .expect_err("custom rpc url must require opt-in");
+
+    match err {
+        CmdError::Usage(msg) => {
+            assert!(msg.contains("custom tempo_rpc_url"), "msg: {msg}");
+            assert!(msg.contains("--allow-custom-endpoints"), "msg: {msg}");
+        }
+        other => panic!("expected Usage, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn escrow_sign_rejects_plain_http_mainnet_rpc() {
+    let server = MockServer::start().await;
+    let keys = fresh_keys();
+    mount_params(&server, escrow_params_json_with_chain_id(4_217), 200).await;
+    mount_readiness_with_chain_id(&server, 4_217).await;
+
+    let mut ctx = ctx_for(&server, Some("test-key"));
+    ctx.dry_run = true;
+
+    let err = run(&ctx, Command::Sign(base_args(&keys)))
+        .await
+        .expect_err("mainnet plain-http rpc must fail");
+
+    match err {
+        CmdError::Usage(msg) => {
+            assert!(msg.contains("plain-HTTP mainnet"), "msg: {msg}");
+            assert!(msg.contains("tempo_rpc_url"), "msg: {msg}");
+        }
+        other => panic!("expected Usage, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn escrow_sign_params_403_maps_to_auth() {
     let server = MockServer::start().await;
     let keys = fresh_keys();
@@ -318,7 +384,7 @@ async fn escrow_sign_readiness_chain_id_mismatch_is_decode_error() {
     // Readiness returns a different chain_id → cross-check fails locally
     // before any signing happens.
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/readiness"))
+        .and(path("/agents/me/readiness"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "ready_to_work": true,
             "checks": {

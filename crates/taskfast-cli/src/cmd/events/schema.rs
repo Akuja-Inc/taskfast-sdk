@@ -27,7 +27,7 @@ pub async fn run(ctx: &Ctx, args: SchemaArgs) -> CmdResult {
     // Schema is public (no X-API-Key required on the server), but we reuse
     // the inner reqwest client so timeouts + TLS config match every other call.
     // Falls back to a bare reqwest::Client when no api_key is configured.
-    let base = format!("{}/api/asyncapi.json", ctx.base_url().trim_end_matches('/'));
+    let base = format!("{}/asyncapi.json", ctx.base_url().trim_end_matches('/'));
     let http = match ctx.client() {
         Ok(c) => c.inner().client().clone(),
         Err(_) => reqwest::Client::new(),
@@ -47,7 +47,7 @@ pub async fn run(ctx: &Ctx, args: SchemaArgs) -> CmdResult {
 
     if !status.is_success() {
         return Err(CmdError::Server(format!(
-            "GET /api/asyncapi.json → HTTP {}: {}",
+            "GET /asyncapi.json → HTTP {}: {}",
             status.as_u16(),
             body
         )));

@@ -30,7 +30,7 @@ fn env_value(e: &Envelope) -> serde_json::Value {
 async fn message_send_posts_content() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(format!("/api/tasks/{TASK}/messages")))
+        .and(path(format!("/tasks/{TASK}/messages")))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "message": {
                 "id": "33333333-3333-3333-3333-333333333333",
@@ -75,7 +75,7 @@ async fn message_send_empty_content_is_usage_error() {
 async fn message_list_returns_envelope() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK}/messages")))
+        .and(path(format!("/tasks/{TASK}/messages")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "data": [],
             "meta": {"next_cursor": null, "has_more": false, "total_count": 0}
@@ -99,7 +99,7 @@ async fn message_list_returns_envelope() {
 async fn message_conversations_returns_envelope() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/tasks/{TASK}/conversations")))
+        .and(path(format!("/tasks/{TASK}/conversations")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "conversations": [],
             "count": 0

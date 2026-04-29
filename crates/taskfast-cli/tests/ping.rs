@@ -44,7 +44,7 @@ async fn ping_happy_path_returns_pong_and_latency() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "00000000-0000-0000-0000-000000000042",
             "name": "alice",
@@ -64,8 +64,8 @@ async fn ping_happy_path_returns_pong_and_latency() {
     assert_eq!(v["data"]["endpoint"], "GET /agents/me");
     assert!(v["data"]["latency_ms"].is_u64(), "latency_ms must be u64");
     assert!(
-        v["data"]["base_url"].as_str().unwrap().ends_with("/api"),
-        "base_url should include the /api suffix from the client"
+        !v["data"]["base_url"].as_str().unwrap().ends_with("/api"),
+        "base_url must not include the legacy /api suffix"
     );
 }
 
@@ -74,7 +74,7 @@ async fn ping_maps_401_to_auth_error() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": "invalid_api_key",
             "message": "bad key",
@@ -143,7 +143,7 @@ async fn ping_does_not_retry_on_5xx() {
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/api/agents/me"))
+        .and(path("/agents/me"))
         .respond_with(ResponseTemplate::new(500).set_body_json(json!({
             "error": "internal",
             "message": "boom",

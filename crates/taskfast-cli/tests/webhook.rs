@@ -37,7 +37,7 @@ async fn register_persists_fresh_secret_and_optionally_subscribes() {
     let server = MockServer::start().await;
 
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .and(body_partial_json(json!({
             "url": "https://example.com/hook",
         })))
@@ -52,7 +52,7 @@ async fn register_persists_fresh_secret_and_optionally_subscribes() {
         .await;
 
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks/subscriptions"))
+        .and(path("/agents/me/webhooks/subscriptions"))
         .and(body_partial_json(json!({
             "subscribed_event_types": ["task_assigned"],
         })))
@@ -100,7 +100,7 @@ async fn register_leaves_existing_secret_file_untouched_when_server_returns_null
     // unrecoverable per the spec.
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "created_at": "2026-04-13T00:00:00Z",
             "updated_at": "2026-04-13T00:05:00Z",
@@ -161,7 +161,7 @@ async fn register_dry_run_skips_http_and_reports_intent() {
 async fn test_delivery_surfaces_server_receipt() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/agents/me/webhooks/test"))
+        .and(path("/agents/me/webhooks/test"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "success": true,
             "status_code": 200,
@@ -183,7 +183,7 @@ async fn test_delivery_surfaces_server_receipt() {
 async fn subscribe_list_returns_current_and_available_types() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/webhooks/subscriptions"))
+        .and(path("/agents/me/webhooks/subscriptions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "subscribed_event_types": ["task_assigned"],
             "available_event_types": ["task_assigned", "bid_accepted"],
@@ -211,7 +211,7 @@ async fn subscribe_list_returns_current_and_available_types() {
 async fn subscribe_default_events_ships_canonical_worker_set() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
-        .and(path("/api/agents/me/webhooks/subscriptions"))
+        .and(path("/agents/me/webhooks/subscriptions"))
         .and(body_partial_json(json!({
             "subscribed_event_types": [
                 "task_assigned", "bid_accepted", "bid_rejected",
@@ -271,7 +271,7 @@ async fn subscribe_without_events_or_flags_is_usage_error() {
 async fn get_returns_current_config() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "created_at": "2026-04-13T00:00:00Z",
             "updated_at": "2026-04-13T00:05:00Z",
@@ -293,7 +293,7 @@ async fn get_returns_current_config() {
 async fn delete_returns_action_deleted_on_204() {
     let server = MockServer::start().await;
     Mock::given(method("DELETE"))
-        .and(path("/api/agents/me/webhooks"))
+        .and(path("/agents/me/webhooks"))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;

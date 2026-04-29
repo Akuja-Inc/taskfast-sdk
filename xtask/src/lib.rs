@@ -63,6 +63,8 @@ use serde_yaml::{Mapping, Value};
 /// Schemas known to be structural clones of `#/components/schemas/Error`.
 pub const ERROR_ALIASES: &[&str] = &["WalletBalanceNotFoundError", "WebhookNoWebhookError"];
 
+const NULL_VARIANT_SCHEMA_KEYS: &[&str] = &["oneOf", "anyOf"];
+
 /// Normalize an OpenAPI YAML document: collapse [`ERROR_ALIASES`] into `Error`.
 ///
 /// Returns the rewritten YAML as a string. Idempotent: running it on already
@@ -96,6 +98,10 @@ pub struct Report {
     /// Count of non-2xx response entries removed across all operations
     /// (progenitor 0.9 `response_types.len() <= 1` assertion).
     pub error_responses_stripped: usize,
+    /// Count of `{type: "null"}` variants stripped from `oneOf` / `anyOf`
+    /// arrays anywhere in the document (progenitor 0.9 doesn't support
+    /// the OpenAPI 3.1 nullable-via-null-type pattern).
+    pub null_variants_stripped: usize,
 }
 
 fn normalize_in_place(doc: &mut Value) -> Result<Report> {
@@ -159,7 +165,61 @@ fn normalize_in_place(doc: &mut Value) -> Result<Report> {
     // (progenitor 0.9 extract_responses assertion, error side).
     report.error_responses_stripped = strip_non_success_responses(doc);
 
+    // Pass 6: strip OpenAPI 3.1 `{type: "null"}` variants from oneOf/anyOf
+    // arrays. Progenitor 0.9 panics on this nullable pattern; the caller's
+    // hand-rolled JSON-RPC forwarder uses serde_json::Value and doesn't
+    // need a generated type for the null branch.
+    report.null_variants_stripped = strip_null_type_variants(doc);
+
     Ok(report)
+}
+
+/// Recursively walk `doc` and drop any `{type: "null"}` entries from `oneOf`
+/// and `anyOf` arrays. Returns the total count stripped.
+///
+/// A schema is considered a null-type variant when its `type` field equals
+/// the string `"null"` — sibling keys like `description` are tolerated so
+/// codegen tools that re-emit the spec with extra annotations still match.
+///
+/// If stripping leaves an empty `oneOf`/`anyOf`, the keyword is removed
+/// outright: an empty schema array is invalid OpenAPI and would trip the
+/// downstream generator harder than the original null-variant did.
+fn strip_null_type_variants(doc: &mut Value) -> usize {
+    fn is_null_type_schema(v: &Value) -> bool {
+        v.as_mapping()
+            .and_then(|m| m.get("type"))
+            .and_then(Value::as_str)
+            == Some("null")
+    }
+    fn walk(v: &mut Value, count: &mut usize) {
+        match v {
+            Value::Mapping(map) => {
+                for key in NULL_VARIANT_SCHEMA_KEYS {
+                    let Some(seq) = map.get_mut(*key).and_then(Value::as_sequence_mut) else {
+                        continue;
+                    };
+                    let before = seq.len();
+                    seq.retain(|item| !is_null_type_schema(item));
+                    *count += before - seq.len();
+                    if before > 0 && seq.is_empty() {
+                        map.remove(*key);
+                    }
+                }
+                for (_, child) in map.iter_mut() {
+                    walk(child, count);
+                }
+            }
+            Value::Sequence(seq) => {
+                for child in seq.iter_mut() {
+                    walk(child, count);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut count = 0;
+    walk(doc, &mut count);
+    count
 }
 
 /// Remove operations whose request body has exactly one content variant,
@@ -548,5 +608,88 @@ components:
         );
         // The path entry itself survives because listThings still lives there.
         assert!(out.contains("/upload:"));
+    }
+
+    const NULL_VARIANT_SPEC: &str = r#"
+openapi: 3.0.0
+info: { title: test, version: 0.0.0 }
+paths:
+  /thing:
+    get:
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { type: object, properties: { name: { type: string } } }
+                  - { type: "null" }
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+    Nullable:
+      anyOf:
+        - { type: integer }
+        - { type: "null", description: "explicit absence" }
+    AllNull:
+      oneOf:
+        - { type: "null" }
+        - { type: "null" }
+    Untouched:
+      oneOf:
+        - { type: integer }
+        - { type: string }
+"#;
+
+    #[test]
+    fn null_type_variants_are_stripped_and_counted() {
+        let (out, report) = normalize_spec_with_report(NULL_VARIANT_SPEC).unwrap();
+        // 1 in /thing oneOf + 1 in Nullable.anyOf + 2 in AllNull.oneOf = 4.
+        assert_eq!(report.null_variants_stripped, 4);
+
+        // Surviving variants kept.
+        assert!(out.contains("Nullable:"));
+        assert!(out.contains("Untouched:"));
+        // Sibling keys (description) on a null-type variant don't shield it.
+        assert!(
+            !out.contains("explicit absence"),
+            "null variant with sibling description not stripped:\n{out}"
+        );
+        // Untouched non-null oneOf preserved verbatim.
+        assert!(
+            out.contains("Untouched:") && out.matches("type: string").count() >= 2,
+            "Untouched.oneOf altered:\n{out}"
+        );
+    }
+
+    #[test]
+    fn empty_oneof_after_strip_is_removed_outright() {
+        let (out, _report) = normalize_spec_with_report(NULL_VARIANT_SPEC).unwrap();
+        // AllNull had only null variants; the oneOf key must be gone, leaving
+        // the (now-empty) schema definition without an invalid `oneOf: []`.
+        // Find the AllNull block and assert no oneOf inside it.
+        let idx = out.find("AllNull:").expect("AllNull schema present");
+        let tail = &out[idx..];
+        // Stop at the next sibling schema or end-of-doc.
+        let block_end = tail[8..].find("\n    ").map_or(tail.len(), |n| n + 8);
+        let block = &tail[..block_end];
+        assert!(
+            !block.contains("oneOf"),
+            "empty oneOf not removed from AllNull:\n{block}"
+        );
+    }
+
+    #[test]
+    fn null_strip_is_idempotent() {
+        let (out1, _) = normalize_spec_with_report(NULL_VARIANT_SPEC).unwrap();
+        let (out2, report2) = normalize_spec_with_report(&out1).unwrap();
+        assert_eq!(out1, out2);
+        assert_eq!(report2.null_variants_stripped, 0);
     }
 }

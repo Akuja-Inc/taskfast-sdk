@@ -29,7 +29,7 @@ use crate::envelope::Envelope;
 
 use taskfast_agent::bootstrap;
 use taskfast_chains::tempo::{sign_distribution, DistributionDomain};
-use taskfast_client::api::types::{SettleTaskRequest, SettleTaskRequestSignature};
+use taskfast_client::api::types::{SettleTaskBody, SettleTaskBodySignature};
 use taskfast_client::map_api_error;
 
 #[derive(Debug, Parser)]
@@ -122,30 +122,14 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
         }
     };
 
-    // 4. Fetch readiness for the domain. settlement_domain is Option on the
-    //    spec; a None or missing verifying_contract means the server isn't
-    //    configured for settlement.
+    // 4. Fetch readiness for the EIP-712 domain (chain_id + verifying_contract).
+    //    Both fields are required by the spec, so a malformed response surfaces
+    //    as a Decode error from progenitor before reaching this site.
     let readiness = bootstrap::get_readiness(&client)
         .await
         .map_err(CmdError::from)?;
-    let domain_spec = readiness.settlement_domain.ok_or_else(|| {
-        CmdError::Usage(
-            "readiness has no settlement_domain — server is not configured \
-             for settlement (check /agents/me/readiness)"
-                .into(),
-        )
-    })?;
-    let verifying_contract_str = domain_spec
-        .verifying_contract
-        .as_ref()
-        .map(|v| v.to_string())
-        .ok_or_else(|| {
-            CmdError::Usage(
-                "readiness.settlement_domain.verifying_contract is null; \
-                 server has no TaskEscrow contract configured (would 503)"
-                    .into(),
-            )
-        })?;
+    let domain_spec = readiness.settlement_domain;
+    let verifying_contract_str = domain_spec.verifying_contract.to_string();
     let verifying_contract: Address = verifying_contract_str.parse().map_err(|e| {
         CmdError::Decode(format!(
             "readiness returned invalid verifying_contract `{verifying_contract_str}`: {e}"
@@ -228,13 +212,14 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
         ));
     }
 
-    // 10. Live POST. Parse into the regex-validated newtype — a failure here
-    //     would mean our local signer produced a malformed signature, which
-    //     is a crypto-layer bug, not a network/server issue.
-    let signature: SettleTaskRequestSignature = signature_hex
+    // 10. Live POST. The regex-validated newtype rejects anything that
+    //     doesn't match the spec's `^0x[0-9a-fA-F]{130}$` pattern — a
+    //     failure here means `sign_distribution` regressed (crypto-layer
+    //     bug), not a network/server issue.
+    let signature: SettleTaskBodySignature = signature_hex
         .parse()
         .map_err(|e| CmdError::Signing(format!("signer produced malformed signature hex: {e}")))?;
-    let body = SettleTaskRequest { signature };
+    let body = SettleTaskBody { signature };
     let resp = match client.inner().settle_task(&task_id, &body).await {
         Ok(v) => v.into_inner(),
         Err(e) => return Err(map_api_error(e).await.into()),

@@ -55,14 +55,14 @@ async fn main() {
     let api_key = env::var("TASKFAST_API_KEY").expect("TASKFAST_API_KEY");
     let bid_id = env::var("BID").expect("BID=<uuid>");
 
-    // Pull the testnet RPC URL from the deployment's /api/config/network.
+    // Pull the testnet RPC URL from the deployment's /config/network.
     // Reuse the client's pre-authenticated reqwest::Client for RPC calls —
-    // the proxy at {api}/api/rpc/testnet requires X-API-Key.
+    // the proxy at {api}/rpc/testnet requires X-API-Key.
     let tf = TaskFastClient::from_api_key(&api, &api_key).expect("construct client");
     let cfg = tf
         .fetch_network_config()
         .await
-        .expect("fetch /api/config/network");
+        .expect("fetch /config/network");
     let rpc_url = cfg
         .entry("testnet")
         .expect("deployment advertises testnet")
@@ -72,7 +72,7 @@ async fn main() {
 
     // 1. Fetch escrow params from the API (CLI-equivalent, so we see exact numbers)
     let params: Value = http
-        .get(format!("{api}/api/bids/{bid_id}/escrow/params"))
+        .get(format!("{api}/bids/{bid_id}/escrow/params"))
         .header("X-API-Key", &api_key)
         .send()
         .await

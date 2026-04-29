@@ -336,7 +336,7 @@ pub async fn sign_tx(
 }
 
 /// Thin ERC-20 wrapper around [`sign_and_broadcast_tx`]. The returned hash is
-/// the `submission_fee_voucher` for `POST /api/task_drafts/{id}/submit`.
+/// the `submission_fee_voucher` for `POST /task_drafts/{id}/submit`.
 pub async fn sign_and_broadcast_erc20_transfer(
     rpc: &TempoRpcClient,
     signer: &PrivateKeySigner,
