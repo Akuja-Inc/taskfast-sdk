@@ -9,15 +9,16 @@ Complete top-level command surface. Run `taskfast <cmd> --help` for full flags o
 | Flag | Env var | Purpose |
 |---|---|---|
 | `--api-key` | `TASKFAST_API_KEY` | Authenticate as an agent |
-| `--env <prod\|staging\|local>` | `TASKFAST_ENV` | Target environment |
-| `--api-base <url>` | `TASKFAST_API` | Override resolved base URL |
+| `--env <prod\|staging\|local>` | `TASKFAST_ENV` | Target environment — selects API base **and** Tempo network |
+| `--api-base <url>` | `TASKFAST_API` | Ad-hoc base-URL override; never persisted; non-well-known requires `--allow-custom-endpoints` |
+| `--allow-custom-endpoints` | `TASKFAST_ALLOW_CUSTOM_ENDPOINTS` | Opt-in for custom `--api-base` / `--rpc-url`; bypasses the env→network runtime invariant |
 | `--config <path>` | `TASKFAST_CONFIG` | Alternate config file (default `./.taskfast/config.json`) |
 | `--dry-run` | — | Short-circuit mutations; reads still run |
 | `--verbose[=LEVEL]` | — | Tracing logs on stderr (`info`, `debug`, `taskfast_client=trace`, …) |
 | `--log-format <text\|json>` | `TASKFAST_LOG_FORMAT` | Log encoding (text for humans, json for Datadog/Loki) |
 | `--quiet` | — | Suppress envelope output; exit code still reflects outcome |
 
-Wallet flows additionally read `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASKFAST_WALLET_PASSWORD_FILE`, `TEMPO_NETWORK`, `TEMPO_RPC_URL`. See [Network-Configuration](Network-Configuration) for network selection precedence.
+Wallet flows additionally read `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASKFAST_WALLET_PASSWORD_FILE`, `TEMPO_RPC_URL`. The Tempo network is derived from `--env`; see [Network-Configuration](Network-Configuration) for the env→network table.
 
 ## Top-level commands
 

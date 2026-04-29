@@ -1,60 +1,63 @@
 # Network Configuration
 
-Network selection is an **operator** concern. The agent skill in `skills/taskfast-agent/` is intentionally network-agnostic — pick the network here, before handing the agent its API key.
+Network selection is derived from the target environment — pick `--env` (or `TASKFAST_ENV`) and the network falls out. There is no `--network` flag and no persisted `network` config field.
 
 > Canonical source: [`docs/NETWORK.md`](https://github.com/Akuja-Inc/taskfast-cli/blob/main/docs/NETWORK.md) in the main repo.
 
-## Networks
+## Env → network mapping
 
-| Network | Default | Chain ID | Explorer | Native WSS gateway |
-|---------|:-------:|---------:|----------|--------------------|
-| `mainnet` | yes | `4217` | `https://explore.tempo.xyz` | `wss://rpc.tempo.xyz` |
-| `testnet` | no | `42431` | `https://explore.testnet.tempo.xyz` | `wss://rpc.moderato.tempo.xyz` |
+| Environment | Network | Chain ID | API base |
+|---|---|---:|---|
+| `prod` | `mainnet` | `4217` | `https://api.taskfast.app` |
+| `staging` | `testnet` | `42431` | `https://staging.api.taskfast.app` |
+| `local` | `testnet` | `42431` | `http://localhost:4000` |
 
-Per-network chain metadata is fetched from `GET /api/config/network` on the TaskFast deployment at runtime — the CLI no longer bundles hardcoded URLs. HTTP JSON-RPC traffic flows through the deployment's own authenticated proxy (`{taskfast_api}/api/rpc/{network}`), not the native Tempo gateway; the `X-API-Key` header authenticates the proxy.
+The mapping is a total function on `Environment` (see `Environment::network` in `crates/taskfast-cli/src/lib.rs`). Changing it means a code change, not a config flip.
 
-## Selection precedence
+## Runtime invariant
 
-Highest wins:
+At first server contact, the CLI verifies the deployment advertises **exactly one** network and that it matches the env's expected network.
 
-1. `--network` CLI flag (per-invocation)
-2. `TEMPO_NETWORK` env var
-3. `network` field in `./.taskfast/config.json`
-4. Built-in default (`mainnet`)
+**Today's mode: warn-only.** Current deployments still serve a multi-network response, so a mismatch logs a `tracing::warn!` and continues. Set `TASKFAST_STRICT_ENV_NETWORK=1` to fail-closed. The default flips to strict in a follow-up CLI release once the server-side one-network-per-deployment fix lands (tracked in issue #62).
 
-## Commands accepting `--network`
+`--allow-custom-endpoints` (or `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`) and `--env local` both bypass this check.
 
-- `taskfast init`
-- `taskfast post`
+## Per-environment behavior
 
-Persist a default for the project:
+### Prod (mainnet)
 
-```bash
-taskfast config set network testnet
-taskfast config set network --unset   # revert to built-in default
-```
-
-## Per-network behavior
-
-### `mainnet`
-
-- Chain ID `4217`. Native WSS gateway `wss://rpc.tempo.xyz`; explorer `https://explore.tempo.xyz`.
+- Chain ID `4217`.
 - No automated funding. Top up wallets manually at [wallet.tempo.xyz](https://wallet.tempo.xyz).
-- `default_stablecoin` is deployment-advertised via `/api/config/network` — may be `null` when the deployment has not finalized a mainnet stablecoin.
-
-### `testnet`
-
-- Chain ID `42431`. Native WSS gateway `wss://rpc.moderato.tempo.xyz`; explorer `https://explore.testnet.tempo.xyz`.
-- `taskfast init --generate-wallet --fund` requests testnet faucet drops for the new wallet. Without `--fund` no faucet call is made on any network.
 - `default_stablecoin` is deployment-advertised via `/api/config/network`.
+
+### Staging / Local (testnet)
+
+- Chain ID `42431`.
+- `taskfast init --generate-wallet --fund` requests testnet faucet drops for the new wallet. Without `--fund` no faucet call is made.
 
 ## RPC override
 
-Override the resolved endpoint for either network:
+Override the resolved RPC endpoint:
 
 - `--rpc-url <url>` (per-invocation)
 - `TEMPO_RPC_URL` (env)
 
+A custom RPC requires `--allow-custom-endpoints`.
+
+## API base override
+
+`--api-base` / `TASKFAST_API` is an ad-hoc override for the env-derived base URL — never persisted. Non-well-known values require `--allow-custom-endpoints`.
+
+## Migration from pre-v2 configs
+
+Configs from CLI versions ≤0.4.4 may still carry `api_base` and/or `network` keys. The CLI now hard-errors on load with a remediation hint:
+
+```bash
+taskfast config migrate
+```
+
+Strips the removed keys and bumps `schema_version` to `2`. Idempotent.
+
 ## Why the skill is network-agnostic
 
-Skill consumers (autonomous agents) execute marketplace loops — they should never branch on network. Operators choose the network at provisioning time; the same skill prompt then runs unchanged against `mainnet` or `testnet`.
+Skill consumers (autonomous agents) execute marketplace loops — they should never branch on network. Operators pick the env at provisioning time; the same skill prompt runs unchanged against any env.

@@ -12,6 +12,20 @@ that is the authoritative changelog.
 
 ### ⚠ BREAKING
 
+- **Env is the single source of truth for `api_base` and `network`.** Both
+  derived from `--env` / `TASKFAST_ENV` via total functions on `Environment`
+  (`prod→mainnet`, `staging→testnet`, `local→testnet`). Removed: the
+  `--network` CLI flag (on `init` and `post`), the `TEMPO_NETWORK` env
+  binding, and the `api_base` / `network` keys in `.taskfast/config.json`
+  (config schema bumped to v2). The `--api-base` flag survives as an
+  ad-hoc, never-persisted override; non-well-known values still need
+  `--allow-custom-endpoints`. Existing configs that carry the removed keys
+  hard-error on load with a remediation hint — run `taskfast config migrate`
+  to strip them. A new runtime invariant logs a `tracing::warn!` when the
+  deployment's `/api/config/network` advertises a network shape other than
+  the env's expected one; set `TASKFAST_STRICT_ENV_NETWORK=1` to fail-closed
+  instead. The default flips to strict in a follow-up release once the
+  server-side one-network-per-deployment fix lands (tracked in #62).
 - **F2 endpoint guard.** `api_base` and `tempo_rpc_url` values that aren't
   one of the well-known TaskFast defaults (prod/staging/local for the API;
   canonical `rpc.tempo.xyz` / `rpc.moderato.tempo.xyz` for the RPC) now
@@ -21,9 +35,9 @@ that is the authoritative changelog.
   from silently redirecting traffic (PAT exfil, fee redirect). Automation
   that points the CLI at a self-hosted API or RPC must set the flag
   explicitly going forward.
-- **F2 mainnet RPC HTTPS.** Plain-HTTP `tempo_rpc_url` on `--network=mainnet`
-  is refused unless the host is loopback. Local anvil/hardhat forks still
-  work.
+- **F2 mainnet RPC HTTPS.** Plain-HTTP `tempo_rpc_url` on a mainnet env
+  (i.e. `--env prod`) is refused unless the host is loopback. Local
+  anvil/hardhat forks still work.
 
 ### Security
 

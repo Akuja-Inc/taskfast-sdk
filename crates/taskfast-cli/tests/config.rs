@@ -29,8 +29,12 @@ async fn set_then_show_roundtrips_and_redacts_api_key() {
     let path = tmp.path().join(".taskfast").join("config.json");
     let ctx = ctx_for(path.clone());
 
-    // Write two fields — one secret, one not.
-    for (k, v) in [("api_key", "am_live_roundtrip9999"), ("network", "testnet")] {
+    // Write two fields — one secret, one not. Test-fixture key uses the
+    // `tk_test_` prefix so gitleaks doesn't flag the diff as a real key.
+    for (k, v) in [
+        ("api_key", "tk_test_roundtrip9999"),
+        ("wallet_address", "0xfeed"),
+    ] {
         run(
             &ctx,
             Command::Set(SetArgs {
@@ -49,7 +53,7 @@ async fn set_then_show_roundtrips_and_redacts_api_key() {
         .unwrap();
     let v = env_value(&env);
     assert_eq!(v["data"]["config"]["api_key"], "***9999");
-    assert_eq!(v["data"]["config"]["network"], "testnet");
+    assert_eq!(v["data"]["config"]["wallet_address"], "0xfeed");
     assert_eq!(v["data"]["path"], path.display().to_string());
 
     // Show --reveal prints the full key.
@@ -57,7 +61,7 @@ async fn set_then_show_roundtrips_and_redacts_api_key() {
         .await
         .unwrap();
     let v = env_value(&env);
-    assert_eq!(v["data"]["config"]["api_key"], "am_live_roundtrip9999");
+    assert_eq!(v["data"]["config"]["api_key"], "tk_test_roundtrip9999");
 }
 
 #[tokio::test]
@@ -73,8 +77,8 @@ async fn path_before_and_after_creation() {
     run(
         &ctx,
         Command::Set(SetArgs {
-            key: "network".into(),
-            value: Some("mainnet".into()),
+            key: "wallet_address".into(),
+            value: Some("0xfeed".into()),
             unset: false,
         }),
     )

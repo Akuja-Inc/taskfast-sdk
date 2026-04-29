@@ -88,14 +88,14 @@ cargo run -p taskfast-cli -- --help
 The binary accepts a small set of global controls that are intended to be automation-friendly:
 
 - `--api-key` or `TASKFAST_API_KEY`
-- `--env` or `TASKFAST_ENV` with `prod`, `staging`, or `local`
-- `--api-base` or `TASKFAST_API` to override the resolved base URL
+- `--env` or `TASKFAST_ENV` with `prod`, `staging`, or `local` — selects the API base **and** the Tempo network (prod→mainnet, staging/local→testnet). Single source of truth.
+- `--api-base` or `TASKFAST_API` for an ad-hoc base-URL override. Never persisted; non-well-known values require `--allow-custom-endpoints`.
 - `--config` or `TASKFAST_CONFIG` to pick a non-default config path (default: `./.taskfast/config.json`)
 - `--dry-run` to short-circuit mutations while preserving read calls
 - `--verbose` for tracing logs on stderr
 - `--quiet` to suppress envelope output entirely
 
-For wallet and posting flows, the current CLI also reads environment such as `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASKFAST_WALLET_PASSWORD_FILE`, `TEMPO_NETWORK`, and `TEMPO_RPC_URL`. Network selection rules and per-network behavior live in [docs/NETWORK.md](./docs/NETWORK.md).
+For wallet and posting flows, the current CLI also reads environment such as `TEMPO_WALLET_ADDRESS`, `TEMPO_KEY_SOURCE`, `TASKFAST_WALLET_PASSWORD_FILE`, and `TEMPO_RPC_URL`. Network selection rules and per-environment behavior live in [docs/NETWORK.md](./docs/NETWORK.md).
 
 ### Command coverage
 

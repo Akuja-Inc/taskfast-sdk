@@ -98,20 +98,16 @@ pub struct Args {
     #[arg(long)]
     pub keystore_path: Option<PathBuf>,
 
-    /// Network selector recorded in the config file. Does not change the
-    /// API base URL (that's `--api-base`).
-    #[arg(long, default_value = "mainnet", env = "TEMPO_NETWORK")]
-    pub network: Network,
-
     /// Skip wallet provisioning entirely. Useful for workers that never
     /// settle (rare) or for rebuilding config state without touching chain.
     #[arg(long)]
     pub skip_wallet: bool,
 
     /// Opt in to the testnet faucet for a freshly-generated wallet on
-    /// `--network testnet`. Off by default so prod scripts (and CI flows
-    /// supplying funds out-of-band) never accidentally hit the faucet.
-    /// No-op on `--network mainnet` — prod never auto-funds.
+    /// testnet environments (Staging / Local). Off by default so prod
+    /// scripts (and CI flows supplying funds out-of-band) never
+    /// accidentally hit the faucet. No-op on Prod — mainnet is never
+    /// auto-funded.
     #[arg(long)]
     pub fund: bool,
 
@@ -181,26 +177,6 @@ pub struct Args {
     /// password-resolution path.
     #[arg(skip)]
     pub inline_wallet_password: Option<String>,
-}
-
-/// Tempo network tag persisted in the config file. Selects between the
-/// production L1 and the testnet faucet path; does not change the TaskFast
-/// API base URL (that's `--api-base`).
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum Network {
-    /// Production Tempo network. Wallets must be funded manually.
-    Mainnet,
-    /// Testnet. Eligible for the public faucet via `--fund`.
-    Testnet,
-}
-
-impl Network {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Mainnet => "mainnet",
-            Self::Testnet => "testnet",
-        }
-    }
 }
 
 pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
@@ -297,6 +273,13 @@ pub async fn run_with_prompter<P: crate::cmd::init_tui::Prompter>(
         Err(e) => return Err(CmdError::from(e)),
     };
     assert_active(&profile)?;
+    // Cross-system invariant — fail-closed before any wallet/agent state
+    // is written if the deployment advertises a different (or additional)
+    // network than the env mandates. Skipped under --dry-run so a `taskfast
+    // init --dry-run` still succeeds against a fresh deployment.
+    if !ctx.dry_run {
+        super::enforce_server_network_invariant(&effective_ctx, &client).await?;
+    }
     let readiness = get_readiness(&client).await.map_err(CmdError::from)?;
 
     // 3. Wallet provisioning.
@@ -314,10 +297,11 @@ pub async fn run_with_prompter<P: crate::cmd::init_tui::Prompter>(
     };
 
     // 4. Update the config in-memory (always — writing is gated by dry-run).
+    //    `api_base` and `network` are no longer persisted — both are derived
+    //    from `environment` at runtime via `Environment::api_base` /
+    //    `Environment::network`.
     cfg.environment = Some(ctx.environment);
-    cfg.api_base = Some(ctx.base_url().to_string());
     cfg.api_key = Some(api_key.clone());
-    cfg.network = Some(args.network.as_str().to_string());
     if let Some(addr) = wallet_outcome.address() {
         cfg.wallet_address = Some(addr.to_string());
     }
@@ -352,7 +336,13 @@ pub async fn run_with_prompter<P: crate::cmd::init_tui::Prompter>(
     //     envelope surfaces this with `status: "skipped", reason: "mainnet"`
     //     plus a `funding_hint` so orchestrators can tell the human where
     //     to go.
-    let faucet_outcome = maybe_request_faucet(&args, &wallet_outcome, ctx.dry_run).await;
+    let faucet_outcome = maybe_request_faucet(
+        &args,
+        ctx.environment.network(),
+        &wallet_outcome,
+        ctx.dry_run,
+    )
+    .await;
 
     // 4c. Optional webhook registration. Only runs when `--webhook-url`
     //     is provided; otherwise the envelope reports `status: "skipped"`
@@ -738,7 +728,12 @@ enum FaucetOutcome {
     Failed { error: String },
 }
 
-async fn maybe_request_faucet(args: &Args, wallet: &WalletOutcome, dry_run: bool) -> FaucetOutcome {
+async fn maybe_request_faucet(
+    args: &Args,
+    network: crate::Network,
+    wallet: &WalletOutcome,
+    dry_run: bool,
+) -> FaucetOutcome {
     if dry_run {
         return FaucetOutcome::Skipped { reason: "dry_run" };
     }
@@ -747,7 +742,7 @@ async fn maybe_request_faucet(args: &Args, wallet: &WalletOutcome, dry_run: bool
             reason: "fund_flag_not_set",
         };
     }
-    if !matches!(args.network, Network::Testnet) {
+    if !matches!(network, crate::Network::Testnet) {
         return FaucetOutcome::Skipped { reason: "mainnet" };
     }
     let address = match wallet {
@@ -1007,7 +1002,6 @@ mod tests {
             generate_wallet: false,
             wallet_password_file: None,
             keystore_path: None,
-            network: Network::Mainnet,
             skip_wallet: false,
             fund: false,
             human_api_key: None,

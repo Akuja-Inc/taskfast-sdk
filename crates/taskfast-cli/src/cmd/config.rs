@@ -35,6 +35,9 @@ pub enum Command {
     Path,
     /// Set a single field in the config file. Allowlisted keys only.
     Set(SetArgs),
+    /// Drop legacy keys (`api_base`, `network`) and bump `schema_version`
+    /// to the current value. Idempotent — no-op when nothing to migrate.
+    Migrate,
 }
 
 #[derive(Debug, Args)]
@@ -48,9 +51,8 @@ pub struct ShowArgs {
 
 #[derive(Debug, Args)]
 pub struct SetArgs {
-    /// Field name. One of: `environment`, `api_base`, `api_key`,
-    /// `network`, `wallet_address`, `keystore_path`, `agent_id`,
-    /// `webhook_url`, `webhook_secret_path`.
+    /// Field name. One of: `environment`, `api_key`, `wallet_address`,
+    /// `keystore_path`, `agent_id`, `webhook_url`, `webhook_secret_path`.
     pub key: String,
     /// New value. Pass `--unset` (below) or an empty string to clear.
     pub value: Option<String>,
@@ -67,6 +69,7 @@ pub async fn run(ctx: &Ctx, cmd: Command) -> CmdResult {
         Command::Show(args) => show(ctx, args),
         Command::Path => Ok(path(ctx)),
         Command::Set(args) => set(ctx, args),
+        Command::Migrate => migrate(ctx),
     }
 }
 
@@ -132,14 +135,76 @@ fn set(ctx: &Ctx, args: SetArgs) -> CmdResult {
     ))
 }
 
+/// `config migrate` — strip removed-at-v2 keys (`api_base`, `network`)
+/// and re-save at the current schema version. Reads raw JSON to bypass
+/// the `Config::load` legacy-fields hard error, which is the whole point
+/// of this command. Idempotent.
+fn migrate(ctx: &Ctx) -> CmdResult {
+    let path = ctx.config_path.as_path();
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Envelope::success(
+                ctx.environment,
+                ctx.dry_run,
+                json!({
+                    "path": path.display().to_string(),
+                    "removed": Vec::<String>::new(),
+                    "written": false,
+                    "reason": "no_config_file",
+                }),
+            ));
+        }
+        Err(e) => {
+            return Err(CmdError::Usage(format!(
+                "read config {}: {e}",
+                path.display()
+            )));
+        }
+    };
+    let mut raw: serde_json::Value = serde_json::from_str(&src)
+        .map_err(|e| CmdError::Usage(format!("parse config {}: {e}", path.display())))?;
+    let mut removed: Vec<String> = Vec::new();
+    if let Some(obj) = raw.as_object_mut() {
+        for k in ["api_base", "network"] {
+            if obj.remove(k).is_some() {
+                removed.push(k.to_string());
+            }
+        }
+        obj.insert(
+            "schema_version".to_string(),
+            serde_json::Value::from(crate::config::CURRENT_SCHEMA_VERSION),
+        );
+    }
+    // Round-trip through `Config` so any unrecognized-but-typed field that
+    // would have failed strict deserialization surfaces here, not on the
+    // next load.
+    let cfg: Config = serde_json::from_value(raw)
+        .map_err(|e| CmdError::Usage(format!("re-parse migrated config: {e}")))?;
+    let written = if ctx.dry_run {
+        false
+    } else {
+        cfg.save(path)?;
+        true
+    };
+    Ok(Envelope::success(
+        ctx.environment,
+        ctx.dry_run,
+        json!({
+            "path": path.display().to_string(),
+            "removed": removed,
+            "written": written,
+            "schema_version": crate::config::CURRENT_SCHEMA_VERSION,
+        }),
+    ))
+}
+
 /// Supported field names for `config set`. Kept as a constant so the
 /// error message lists exactly what's allowed without drifting from the
 /// match arm below.
 const ALLOWED_KEYS: &[&str] = &[
     "environment",
-    "api_base",
     "api_key",
-    "network",
     "wallet_address",
     "keystore_path",
     "agent_id",
@@ -155,9 +220,7 @@ fn apply_set(cfg: &mut Config, key: &str, value: Option<&str>) -> Result<(), Cmd
                 Some(v) => Some(parse_environment(v)?),
             };
         }
-        "api_base" => cfg.api_base = value.map(str::to_string),
         "api_key" => cfg.api_key = value.map(str::to_string),
-        "network" => cfg.network = value.map(str::to_string),
         "wallet_address" => cfg.wallet_address = value.map(str::to_string),
         "keystore_path" => cfg.keystore_path = value.map(PathBuf::from),
         "agent_id" => cfg.agent_id = value.map(str::to_string),
@@ -270,11 +333,28 @@ mod tests {
     #[test]
     fn apply_set_empty_value_clears_field() {
         let mut cfg = Config {
-            api_base: Some("http://x".into()),
+            wallet_address: Some("0xabc".into()),
             ..Config::default()
         };
-        apply_set(&mut cfg, "api_base", None).unwrap();
-        assert!(cfg.api_base.is_none());
+        apply_set(&mut cfg, "wallet_address", None).unwrap();
+        assert!(cfg.wallet_address.is_none());
+    }
+
+    #[test]
+    fn apply_set_rejects_removed_keys_with_migration_hint() {
+        let mut cfg = Config::default();
+        for key in ["api_base", "network"] {
+            let err = apply_set(&mut cfg, key, Some("x")).unwrap_err();
+            match err {
+                CmdError::Usage(msg) => {
+                    assert!(
+                        msg.contains(key),
+                        "error must name the rejected key {key}: {msg}"
+                    );
+                }
+                other => panic!("expected Usage for {key}, got {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -349,8 +429,8 @@ mod tests {
         let env = run(
             &ctx_with(path.clone(), false),
             Command::Set(SetArgs {
-                key: "network".into(),
-                value: Some("testnet".into()),
+                key: "wallet_address".into(),
+                value: Some("0xabc".into()),
                 unset: false,
             }),
         )
@@ -358,23 +438,21 @@ mod tests {
         .unwrap();
         let v = serde_json::to_value(&env).unwrap();
         assert_eq!(v["data"]["written"], true);
-        assert_eq!(v["data"]["after"], "testnet");
+        assert_eq!(v["data"]["after"], "0xabc");
 
         let loaded = Config::load(&path).unwrap();
-        assert_eq!(loaded.network.as_deref(), Some("testnet"));
+        assert_eq!(loaded.wallet_address.as_deref(), Some("0xabc"));
     }
 
     #[tokio::test]
     async fn set_dry_run_does_not_persist() {
         let tmp = TempDir::new().unwrap();
-        // Nest under `.taskfast/` so the migration-path grandparent
-        // lookup lands inside tmp (not `/tmp` on the host).
         let path = tmp.path().join(".taskfast").join("config.json");
         let env = run(
             &ctx_with(path.clone(), true),
             Command::Set(SetArgs {
-                key: "network".into(),
-                value: Some("testnet".into()),
+                key: "wallet_address".into(),
+                value: Some("0xabc".into()),
                 unset: false,
             }),
         )
@@ -391,7 +469,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.json");
         Config {
-            network: Some("mainnet".into()),
+            wallet_address: Some("0xabc".into()),
             ..Config::default()
         }
         .save(&path)
@@ -400,7 +478,7 @@ mod tests {
         run(
             &ctx_with(path.clone(), false),
             Command::Set(SetArgs {
-                key: "network".into(),
+                key: "wallet_address".into(),
                 value: None,
                 unset: true,
             }),
@@ -409,7 +487,61 @@ mod tests {
         .unwrap();
 
         let loaded = Config::load(&path).unwrap();
-        assert!(loaded.network.is_none());
+        assert!(loaded.wallet_address.is_none());
+    }
+
+    #[tokio::test]
+    async fn migrate_strips_legacy_keys_and_bumps_schema() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join(".taskfast").join("config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = r#"{
+            "schema_version": 1,
+            "api_base": "https://api.taskfast.app",
+            "network": "mainnet",
+            "wallet_address": "0xabc"
+        }"#;
+        std::fs::write(&path, body).unwrap();
+
+        let env = run(&ctx_with(path.clone(), false), Command::Migrate)
+            .await
+            .unwrap();
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["data"]["written"], true);
+        let removed: Vec<String> = serde_json::from_value(v["data"]["removed"].clone()).unwrap();
+        assert!(removed.contains(&"api_base".to_string()));
+        assert!(removed.contains(&"network".to_string()));
+
+        // Post-migration `Config::load` must succeed (no legacy fields).
+        let loaded = Config::load(&path).expect("post-migrate load succeeds");
+        assert_eq!(loaded.wallet_address.as_deref(), Some("0xabc"));
+    }
+
+    #[tokio::test]
+    async fn migrate_is_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+        Config {
+            wallet_address: Some("0xabc".into()),
+            ..Config::default()
+        }
+        .save(&path)
+        .unwrap();
+
+        let env = run(&ctx_with(path, false), Command::Migrate).await.unwrap();
+        let v = serde_json::to_value(&env).unwrap();
+        let removed: Vec<String> = serde_json::from_value(v["data"]["removed"].clone()).unwrap();
+        assert!(removed.is_empty(), "nothing to remove on a clean config");
+    }
+
+    #[tokio::test]
+    async fn migrate_no_config_file_is_noop() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("nonexistent.json");
+        let env = run(&ctx_with(path, false), Command::Migrate).await.unwrap();
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["data"]["written"], false);
+        assert_eq!(v["data"]["reason"], "no_config_file");
     }
 
     #[tokio::test]

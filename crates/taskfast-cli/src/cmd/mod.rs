@@ -56,7 +56,8 @@ pub struct Ctx {
     pub api_key: Option<String>,
     pub environment: Environment,
     /// Explicit `--api-base` / `TASKFAST_API` override. Wins over
-    /// [`Environment::default_base_url`] when set.
+    /// [`Environment::api_base`] when set. Never persisted — the in-memory
+    /// override is session-scoped only.
     pub api_base: Option<String>,
     /// Resolved path to the JSON config file (default
     /// `./.taskfast/config.json`, override via `--config` /
@@ -146,7 +147,10 @@ impl Ctx {
         let receipt_timeout =
             parse_duration_cfg(cfg.receipt_timeout.as_deref(), "receipt_timeout")?;
         let environment = cli_env.or(cfg.environment).unwrap_or(DEFAULT_ENVIRONMENT);
-        let api_base = cli_api_base.or_else(|| cfg.api_base.clone());
+        // api_base is no longer persisted: only the CLI/env-supplied override
+        // can deviate from `environment.api_base()`. The endpoint guard still
+        // gates that override against the well-known set + opt-in flag.
+        let api_base = cli_api_base;
         enforce_endpoint_guard(environment, api_base.as_deref(), cli_allow_custom_endpoints)?;
         Ok(Self {
             api_key: cli_api_key.or_else(|| cfg.api_key.clone()),
@@ -197,7 +201,7 @@ impl Ctx {
     pub fn base_url(&self) -> &str {
         match self.api_base.as_deref() {
             Some(u) => u,
-            None => self.environment.default_base_url(),
+            None => self.environment.api_base(),
         }
     }
 
@@ -278,7 +282,7 @@ pub(crate) fn is_proxy_rpc_url(rpc_url: &str, base_url: &str) -> bool {
 }
 
 /// F2 endpoint-override guard. Refuses to run when the effective
-/// `api_base` deviates from [`WELL_KNOWN_API_BASES`][crate::WELL_KNOWN_API_BASES]
+/// `api_base` deviates from [`well_known_api_bases`][crate::well_known_api_bases]
 /// unless the caller explicitly opts in via `--allow-custom-endpoints`
 /// (or env `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`) or the environment is
 /// [`Environment::Local`] (local dev is already network-sandboxed).
@@ -307,6 +311,70 @@ fn enforce_endpoint_guard(
          a cloned repo from silently redirecting API traffic.",
         env = environment.as_str()
     )))
+}
+
+/// Runtime cross-system check for the env→network invariant. The
+/// compile-time table in [`Environment::network`] says each env runs
+/// exactly one Tempo network; this verifies that the deployment at
+/// `ctx.base_url()` agrees by inspecting `/api/config/network`.
+///
+/// **Default: warn-only.** Today's deployments still advertise multiple
+/// networks in one response (server-side one-network-per-deployment
+/// tracked in #62). Until that lands, a mismatch logs a `tracing::warn!`
+/// and continues. Set `TASKFAST_STRICT_ENV_NETWORK=1` to fail-closed
+/// instead. The default flips to strict in a follow-up CLI release once
+/// #62 is deployed across prod + staging.
+///
+/// Bypassed entirely for [`Environment::Local`] (sandboxed dev) and when
+/// `--allow-custom-endpoints` is set, matching the F2 endpoint guard.
+pub async fn enforce_server_network_invariant(
+    ctx: &Ctx,
+    client: &TaskFastClient,
+) -> Result<(), CmdError> {
+    if ctx.allow_custom_endpoints || ctx.environment == Environment::Local {
+        return Ok(());
+    }
+    let cfg = client
+        .fetch_network_config()
+        .await
+        .map_err(CmdError::from)?;
+    let strict = std::env::var("TASKFAST_STRICT_ENV_NETWORK")
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    let advertised: Vec<String> = cfg.networks.keys().cloned().collect();
+    check_network_invariant(ctx.environment, ctx.base_url(), &advertised, strict)
+}
+
+/// Pure-logic core of [`enforce_server_network_invariant`]. Split out so
+/// the strict / warn / bypass branches are unit-testable without spinning
+/// up a wiremock server.
+fn check_network_invariant(
+    env: Environment,
+    api_base: &str,
+    advertised: &[String],
+    strict: bool,
+) -> Result<(), CmdError> {
+    let expected = env.network().as_str();
+    if advertised.len() == 1 && advertised[0] == expected {
+        return Ok(());
+    }
+    if strict {
+        return Err(CmdError::Server(format!(
+            "deployment at {api_base} advertises networks {advertised:?}; env {} requires \
+             exactly [{expected}]. Server-side fix tracked in issue #62. Unset \
+             TASKFAST_STRICT_ENV_NETWORK or pass --allow-custom-endpoints to bypass.",
+            env.as_str(),
+        )));
+    }
+    tracing::warn!(
+        api_base = %api_base,
+        env = env.as_str(),
+        expected = expected,
+        advertised = ?advertised,
+        "deployment advertises a different network shape than env requires; \
+         server-side fix tracked in issue #62. Set TASKFAST_STRICT_ENV_NETWORK=1 \
+         to fail-closed."
+    );
+    Ok(())
 }
 
 /// Parse a human-readable duration string from the config file,
@@ -637,15 +705,10 @@ mod tests {
         ctx.client().expect("client should build with a valid key");
     }
 
-    fn cfg_with(
-        api_key: Option<&str>,
-        environment: Option<Environment>,
-        api_base: Option<&str>,
-    ) -> Config {
+    fn cfg_with(api_key: Option<&str>, environment: Option<Environment>) -> Config {
         Config {
             api_key: api_key.map(str::to_string),
             environment,
-            api_base: api_base.map(str::to_string),
             ..Config::default()
         }
     }
@@ -839,11 +902,7 @@ mod tests {
 
     #[test]
     fn from_parts_flag_wins_over_config() {
-        let cfg = cfg_with(
-            Some("cfg_key"),
-            Some(Environment::Staging),
-            Some("http://cfg"),
-        );
+        let cfg = cfg_with(Some("cfg_key"), Some(Environment::Staging));
         let ctx = Ctx::from_parts(
             Some("flag_key".into()),
             Some(Environment::Local),
@@ -857,23 +916,24 @@ mod tests {
         .expect("valid cfg");
         assert_eq!(ctx.api_key.as_deref(), Some("flag_key"));
         assert_eq!(ctx.environment, Environment::Local);
+        // `--api-base` is the only api_base source post-v2 — it should
+        // round-trip into the in-memory Ctx field unchanged.
         assert_eq!(ctx.api_base.as_deref(), Some("http://flag"));
     }
 
     #[test]
     fn from_parts_config_fills_when_flags_absent() {
-        let cfg = cfg_with(
-            Some("cfg_key"),
-            Some(Environment::Staging),
-            Some("http://cfg"),
-        );
-        // allow_custom=true because "http://cfg" is a test fixture, not a
-        // well-known endpoint — the F2 guard would otherwise refuse it.
+        // Post-v2: `api_base` is no longer a config field, so the only
+        // thing the config can supply here is api_key + environment.
+        let cfg = cfg_with(Some("cfg_key"), Some(Environment::Staging));
         let ctx =
-            Ctx::from_parts(None, None, None, None, false, false, true, &cfg).expect("valid cfg");
+            Ctx::from_parts(None, None, None, None, false, false, false, &cfg).expect("valid cfg");
         assert_eq!(ctx.api_key.as_deref(), Some("cfg_key"));
         assert_eq!(ctx.environment, Environment::Staging);
-        assert_eq!(ctx.api_base.as_deref(), Some("http://cfg"));
+        // No CLI override and no persisted field → in-memory api_base
+        // stays None; `base_url()` falls through to env default.
+        assert!(ctx.api_base.is_none());
+        assert_eq!(ctx.base_url(), Environment::Staging.api_base());
     }
 
     #[test]
@@ -898,13 +958,10 @@ mod tests {
 
     #[test]
     fn from_parts_flag_partial_overrides_preserve_other_config_fields() {
-        // Only `api_key` passed on the CLI — environment + api_base
-        // should still come from the config file.
-        let cfg = cfg_with(
-            Some("cfg_key"),
-            Some(Environment::Staging),
-            Some("http://cfg"),
-        );
+        // Only `api_key` passed on the CLI — environment should still come
+        // from the config file. (api_base no longer persisted, so there's
+        // nothing for the config to contribute on that axis.)
+        let cfg = cfg_with(Some("cfg_key"), Some(Environment::Staging));
         let ctx = Ctx::from_parts(
             Some("flag_key".into()),
             None,
@@ -912,27 +969,32 @@ mod tests {
             None,
             false,
             false,
-            true,
+            false,
             &cfg,
         )
         .expect("valid cfg");
         assert_eq!(ctx.api_key.as_deref(), Some("flag_key"));
         assert_eq!(ctx.environment, Environment::Staging);
-        assert_eq!(ctx.api_base.as_deref(), Some("http://cfg"));
+        assert!(ctx.api_base.is_none());
     }
 
     #[test]
     fn from_parts_rejects_custom_api_base_for_non_local_env() {
-        // Simulate a malicious .taskfast/config.json: env=Prod, api_base
-        // points at attacker host. Guard must refuse before any request.
-        let cfg = cfg_with(
-            Some("stolen_pat"),
-            Some(Environment::Prod),
-            Some("https://evil.example"),
-        );
-        let err = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
-            .err()
-            .expect("custom api_base on prod must be refused");
+        // Hostile invocation: --env prod with a CLI-supplied attacker
+        // api_base. Guard must refuse before any request.
+        let cfg = cfg_with(Some("stolen_pat"), Some(Environment::Prod));
+        let err = Ctx::from_parts(
+            None,
+            None,
+            Some("https://evil.example".into()),
+            None,
+            false,
+            false,
+            false,
+            &cfg,
+        )
+        .err()
+        .expect("custom api_base on prod must be refused");
         match err {
             CmdError::Usage(msg) => {
                 assert!(msg.contains("evil.example"), "msg: {msg}");
@@ -944,38 +1006,53 @@ mod tests {
 
     #[test]
     fn from_parts_allows_custom_api_base_when_opt_in_flag_set() {
-        let cfg = cfg_with(
-            Some("k"),
-            Some(Environment::Prod),
-            Some("https://evil.example"),
-        );
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, true, &cfg)
-            .expect("--allow-custom-endpoints must bypass the guard");
+        let cfg = cfg_with(Some("k"), Some(Environment::Prod));
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            Some("https://evil.example".into()),
+            None,
+            false,
+            false,
+            true,
+            &cfg,
+        )
+        .expect("--allow-custom-endpoints must bypass the guard");
         assert_eq!(ctx.api_base.as_deref(), Some("https://evil.example"));
     }
 
     #[test]
     fn from_parts_allows_custom_api_base_for_local_env() {
         // Local dev is sandboxed — no guard penalty.
-        let cfg = cfg_with(
-            Some("k"),
-            Some(Environment::Local),
-            Some("http://127.0.0.1:4001"),
-        );
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
-            .expect("local env bypasses guard");
+        let cfg = cfg_with(Some("k"), Some(Environment::Local));
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            Some("http://127.0.0.1:4001".into()),
+            None,
+            false,
+            false,
+            false,
+            &cfg,
+        )
+        .expect("local env bypasses guard");
         assert_eq!(ctx.api_base.as_deref(), Some("http://127.0.0.1:4001"));
     }
 
     #[test]
     fn from_parts_accepts_well_known_api_base_without_opt_in() {
-        let cfg = cfg_with(
-            Some("k"),
-            Some(Environment::Prod),
-            Some("https://api.taskfast.app"),
-        );
-        let ctx = Ctx::from_parts(None, None, None, None, false, false, false, &cfg)
-            .expect("well-known api_base passes without --allow-custom-endpoints");
+        let cfg = cfg_with(Some("k"), Some(Environment::Prod));
+        let ctx = Ctx::from_parts(
+            None,
+            None,
+            Some("https://api.taskfast.app".into()),
+            None,
+            false,
+            false,
+            false,
+            &cfg,
+        )
+        .expect("well-known api_base passes without --allow-custom-endpoints");
         assert_eq!(ctx.api_base.as_deref(), Some("https://api.taskfast.app"));
     }
 
@@ -994,6 +1071,77 @@ mod tests {
         )
         .expect("no api_base = no guard");
         assert!(ctx.api_base.is_none());
+    }
+
+    #[test]
+    fn network_invariant_ok_when_single_advertised_matches() {
+        let res = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["mainnet".into()],
+            true,
+        );
+        assert!(res.is_ok(), "exact match passes strict mode: {res:?}");
+    }
+
+    #[test]
+    fn network_invariant_strict_rejects_wrong_single_network() {
+        let err = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["testnet".into()],
+            true,
+        )
+        .expect_err("strict mode must reject wrong network");
+        match err {
+            CmdError::Server(msg) => {
+                assert!(msg.contains("testnet"), "msg: {msg}");
+                assert!(msg.contains("mainnet"), "msg: {msg}");
+                assert!(msg.contains("issue #62"), "remediation hint: {msg}");
+            }
+            other => panic!("expected Server, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn network_invariant_strict_rejects_extra_advertised() {
+        let err = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["mainnet".into(), "testnet".into()],
+            true,
+        )
+        .expect_err("strict mode must reject len != 1");
+        assert!(matches!(err, CmdError::Server(_)));
+    }
+
+    #[test]
+    fn network_invariant_warn_passes_under_today_server_shape() {
+        // Today's deployments advertise both networks. Warn-only mode
+        // (default) keeps the CLI usable until issue #62 closes.
+        let res = check_network_invariant(
+            Environment::Staging,
+            "https://staging.api.taskfast.app",
+            &["mainnet".into(), "testnet".into()],
+            false,
+        );
+        assert!(
+            res.is_ok(),
+            "non-strict mode must let today's multi-network deployments through: {res:?}"
+        );
+    }
+
+    #[test]
+    fn network_invariant_warn_passes_when_wrong_single_network() {
+        // Even a wrong-single-network advertised should warn-only —
+        // strict mode is opt-in.
+        let res = check_network_invariant(
+            Environment::Prod,
+            "https://api.taskfast.app",
+            &["testnet".into()],
+            false,
+        );
+        assert!(res.is_ok(), "non-strict mode warns rather than errors");
     }
 
     #[test]

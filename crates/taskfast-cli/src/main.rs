@@ -48,8 +48,9 @@ struct Cli {
     #[arg(long, global = true, env = "TASKFAST_ENV")]
     env: Option<Environment>,
 
-    /// Override the resolved base URL (bypasses env → URL mapping). Useful
-    /// for pointing at a local dev server without touching prod defaults.
+    /// Ad-hoc override for the env-derived API base URL. Never persisted.
+    /// Non-well-known values require `--allow-custom-endpoints`; the guard
+    /// blocks a malicious config from silently redirecting traffic.
     #[arg(long, global = true, env = "TASKFAST_API")]
     api_base: Option<String>,
 

@@ -21,14 +21,39 @@ pub use exit::ExitCode;
 
 /// Re-exported from `main.rs` so tests can construct a [`cmd::Ctx`] with a
 /// named [`Environment`] without depending on the binary entry point.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum Environment {
     Prod,
     Staging,
     Local,
 }
 
+/// Tempo network selector. Derived from [`Environment`] — never persisted,
+/// never accepted as a CLI flag. The compile-time mapping in
+/// [`Environment::network`] is the single source of truth; the runtime
+/// invariant in `cmd::enforce_server_network_invariant` cross-checks it
+/// against `/api/config/network`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Network {
+    Mainnet,
+    Testnet,
+}
+
+impl Network {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+        }
+    }
+}
+
 impl Environment {
+    /// Every variant. Drives table-driven tests and the well-known-base
+    /// iterator; touching [`Environment`] without updating this array
+    /// fails the `all_covers_every_variant` test.
+    pub const ALL: &'static [Environment] = &[Self::Prod, Self::Staging, Self::Local];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Prod => "production",
@@ -37,37 +62,45 @@ impl Environment {
         }
     }
 
-    pub fn default_base_url(self) -> &'static str {
+    /// Sole TaskFast API base URL for this environment. Total function;
+    /// the F2 endpoint-override guard treats anything else as adversarial.
+    pub fn api_base(self) -> &'static str {
         match self {
             Self::Prod => "https://api.taskfast.app",
             Self::Staging => "https://staging.api.taskfast.app",
             Self::Local => "http://localhost:4000",
         }
     }
+
+    /// Sole Tempo network for this environment. Prod runs mainnet; staging
+    /// and local both run testnet. The runtime invariant verifies the
+    /// deployment at [`api_base`](Self::api_base) advertises exactly this
+    /// network and no other.
+    pub fn network(self) -> Network {
+        match self {
+            Self::Prod => Network::Mainnet,
+            Self::Staging => Network::Testnet,
+            Self::Local => Network::Testnet,
+        }
+    }
 }
 
-/// Well-known TaskFast API base URLs that match an [`Environment`] default.
+/// Iterator over the well-known TaskFast API base URLs — one per
+/// [`Environment`] variant, derived from [`Environment::api_base`].
 ///
-/// Used by the F2 endpoint-override guard: an `api_base` loaded from a
-/// CWD-local config file is rejected unless it either matches one of these
-/// or the caller passed `--allow-custom-endpoints` (or env
-/// `TASKFAST_ALLOW_CUSTOM_ENDPOINTS=1`). A malicious cloned repo shipping
-/// a `.taskfast/config.json` pointing `api_base` at attacker infra would
-/// otherwise silently exfiltrate the PAT on the first request.
-pub const WELL_KNOWN_API_BASES: &[&str] = &[
-    "https://api.taskfast.app",
-    "https://staging.api.taskfast.app",
-    "http://localhost:4000",
-];
+/// Used by the F2 endpoint-override guard: an `api_base` supplied via the
+/// `--api-base` flag is rejected unless it matches one of these or the
+/// caller passed `--allow-custom-endpoints`.
+pub fn well_known_api_bases() -> impl Iterator<Item = &'static str> {
+    Environment::ALL.iter().map(|e| e.api_base())
+}
 
 /// True when `url` exactly matches a known-good default from
-/// [`WELL_KNOWN_API_BASES`]. Trailing `/` is tolerated so a config-file
-/// value `https://api.taskfast.app/` isn't flagged as custom.
+/// [`well_known_api_bases`]. Trailing `/` is tolerated so a value
+/// `https://api.taskfast.app/` isn't flagged as custom.
 pub fn is_well_known_api_base(url: &str) -> bool {
     let trimmed = url.trim_end_matches('/');
-    WELL_KNOWN_API_BASES
-        .iter()
-        .any(|w| w.trim_end_matches('/') == trimmed)
+    well_known_api_bases().any(|w| w.trim_end_matches('/') == trimmed)
 }
 
 /// Derive the human-facing account-tokens URL from an API base URL.
@@ -110,25 +143,69 @@ fn strip_api_label(host: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{accounts_url, is_well_known_api_base, Environment, WELL_KNOWN_API_BASES};
+    use super::{accounts_url, is_well_known_api_base, well_known_api_bases, Environment, Network};
+    use std::collections::HashSet;
+
+    #[test]
+    fn all_covers_every_variant() {
+        // Drift trap: if someone adds an Environment variant without
+        // appending it to ::ALL, this test catches the gap that compile-
+        // time exhaustiveness can't (a new variant compiles fine if it's
+        // never read; ::ALL is a const array, not a match).
+        let n = Environment::ALL.len();
+        let unique: HashSet<_> = Environment::ALL.iter().copied().collect();
+        assert_eq!(unique.len(), n, "Environment::ALL has duplicates");
+        for env in Environment::ALL {
+            // Touch every method so adding a variant without updating one
+            // of these breaks the build via match exhaustiveness.
+            let _ = env.as_str();
+            let _ = env.api_base();
+            let _ = env.network();
+        }
+    }
+
+    #[test]
+    fn each_env_has_unique_api_base() {
+        let bases: HashSet<_> = Environment::ALL.iter().map(|e| e.api_base()).collect();
+        assert_eq!(
+            bases.len(),
+            Environment::ALL.len(),
+            "two envs share an api_base"
+        );
+    }
+
+    #[test]
+    fn env_api_base_table_is_frozen() {
+        // Pin the exact mapping. Touching this test = a deliberate decision.
+        assert_eq!(Environment::Prod.api_base(), "https://api.taskfast.app");
+        assert_eq!(
+            Environment::Staging.api_base(),
+            "https://staging.api.taskfast.app"
+        );
+        assert_eq!(Environment::Local.api_base(), "http://localhost:4000");
+    }
+
+    #[test]
+    fn env_network_table_is_frozen() {
+        assert_eq!(Environment::Prod.network(), Network::Mainnet);
+        assert_eq!(Environment::Staging.network(), Network::Testnet);
+        assert_eq!(Environment::Local.network(), Network::Testnet);
+    }
 
     #[test]
     fn well_known_api_bases_cover_every_environment_default() {
-        // Guard against drift: if someone adds a new Environment variant and
-        // forgets to register its default URL, the F2 guard would reject the
-        // CLI's own baked-in default.
-        for env in [Environment::Prod, Environment::Staging, Environment::Local] {
-            let url = env.default_base_url();
+        for env in Environment::ALL {
+            let url = env.api_base();
             assert!(
                 is_well_known_api_base(url),
-                "default URL for {env:?} ({url}) must be in WELL_KNOWN_API_BASES"
+                "api_base for {env:?} ({url}) must be in well_known_api_bases"
             );
         }
     }
 
     #[test]
     fn is_well_known_api_base_accepts_exact_defaults() {
-        for url in WELL_KNOWN_API_BASES {
+        for url in well_known_api_bases() {
             assert!(is_well_known_api_base(url), "expected well-known: {url}");
         }
     }

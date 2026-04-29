@@ -14,7 +14,7 @@ use tempfile::TempDir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::init::{run_with_prompter, Args, Network};
+use taskfast_cli::cmd::init::{run_with_prompter, Args};
 use taskfast_cli::cmd::init_tui::{Prompter, WalletMode};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::config::Config;
@@ -116,7 +116,6 @@ fn base_args() -> Args {
         generate_wallet: false,
         wallet_password_file: None,
         keystore_path: None,
-        network: Network::Testnet,
         skip_wallet: false,
         fund: false,
         human_api_key: None,

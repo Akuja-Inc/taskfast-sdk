@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use super::{CmdError, CmdResult, Ctx};
 use crate::envelope::Envelope;
+use crate::Network;
 
 use taskfast_agent::tempo_rpc::{sign_and_broadcast_erc20_transfer, TempoRpcClient};
 use taskfast_chains::tempo::{is_allowed_fee_token, is_known_network};
@@ -154,13 +155,10 @@ pub struct Args {
     #[arg(long, env = "TASKFAST_WALLET_PASSWORD_FILE")]
     pub wallet_password_file: Option<PathBuf>,
 
-    /// Tempo RPC endpoint. Defaults to the canonical URL for `--network`.
+    /// Tempo RPC endpoint. Defaults to the canonical proxy URL the
+    /// deployment advertises for the env's network.
     #[arg(long, env = "TEMPO_RPC_URL")]
     pub rpc_url: Option<String>,
-
-    /// Network selector for the default RPC URL.
-    #[arg(long, default_value = "mainnet", env = "TEMPO_NETWORK")]
-    pub network: Network,
 
     /// Acknowledge oversized budgets. Required when the budget exceeds
     /// `confirm_above_budget` in the config. No-op when the gate is unset
@@ -190,22 +188,6 @@ impl From<AssignmentType> for TaskDraftPrepareRequestAssignmentType {
         match a {
             AssignmentType::Open => Self::Open,
             AssignmentType::Direct => Self::Direct,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum Network {
-    Mainnet,
-    Testnet,
-}
-
-impl Network {
-    /// Key into the `GET /api/config/network` response map.
-    fn name(self) -> &'static str {
-        match self {
-            Self::Mainnet => "mainnet",
-            Self::Testnet => "testnet",
         }
     }
 }
@@ -270,14 +252,15 @@ pub async fn run(ctx: &Ctx, args: Args) -> CmdResult {
     // Dry-run must perform zero HTTP. Predict the proxy URL locally so the
     // envelope still reports what the real path would have used.
     if ctx.dry_run {
+        let network = ctx.environment.network();
         let rpc_url = if let Some(ref override_url) = args.rpc_url {
-            validate_override_rpc_url(override_url, args.network, ctx.allow_custom_endpoints)?;
+            validate_override_rpc_url(override_url, network, ctx.allow_custom_endpoints)?;
             override_url.clone()
         } else {
             format!(
                 "{}/api/rpc/{}",
                 ctx.base_url().trim_end_matches('/'),
-                args.network.name()
+                network.as_str()
             )
         };
         return Ok(Envelope::success(
@@ -456,8 +439,9 @@ async fn resolve_rpc_url(
     args: &Args,
     ctx: &Ctx,
 ) -> Result<(String, bool), CmdError> {
+    let network = ctx.environment.network();
     if let Some(ref override_url) = args.rpc_url {
-        validate_override_rpc_url(override_url, args.network, ctx.allow_custom_endpoints)?;
+        validate_override_rpc_url(override_url, network, ctx.allow_custom_endpoints)?;
         return Ok((override_url.clone(), false));
     }
     let cfg = client.fetch_network_config().await.map_err(|e| match e {
@@ -466,7 +450,40 @@ async fn resolve_rpc_url(
         }
         other => CmdError::from(other),
     })?;
-    let name = args.network.name();
+    // Runtime invariant — issue #62 (server-side): the env's deployment must
+    // advertise exactly its one network, and nothing else.
+    //
+    // Today's deployments still advertise multiple networks per response;
+    // until #62 lands, a `len != 1` mismatch logs a warn and continues.
+    // Set TASKFAST_STRICT_ENV_NETWORK=1 to fail-closed.
+    // `--allow-custom-endpoints` and `Environment::Local` bypass entirely
+    // (matches `enforce_endpoint_guard`).
+    let name = network.as_str();
+    if !ctx.allow_custom_endpoints
+        && ctx.environment != crate::Environment::Local
+        && cfg.networks.len() != 1
+    {
+        let advertised: Vec<&str> = cfg.networks.keys().map(String::as_str).collect();
+        let strict = std::env::var("TASKFAST_STRICT_ENV_NETWORK")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        if strict {
+            return Err(CmdError::Server(format!(
+                "deployment at {} advertises networks {advertised:?}; env {} requires \
+                 exactly [{name}]. Server-side fix tracked in issue #62. Unset \
+                 TASKFAST_STRICT_ENV_NETWORK or pass --allow-custom-endpoints to bypass.",
+                ctx.base_url(),
+                ctx.environment.as_str(),
+            )));
+        }
+        tracing::warn!(
+            api_base = %ctx.base_url(),
+            env = ctx.environment.as_str(),
+            expected = name,
+            advertised = ?advertised,
+            "deployment advertises additional networks; server-side fix tracked in #62. \
+             Set TASKFAST_STRICT_ENV_NETWORK=1 to fail-closed."
+        );
+    }
     let entry = cfg.entry(name).map_err(|e| {
         CmdError::Server(format!(
             "deployment at {} does not advertise network `{name}`: {e}",
@@ -587,7 +604,9 @@ mod tests {
 
     #[test]
     fn network_name_matches_config_map_keys() {
-        assert_eq!(Network::Mainnet.name(), "mainnet");
-        assert_eq!(Network::Testnet.name(), "testnet");
+        // The lookup key into `GET /api/config/network`'s `networks` map.
+        // Must stay in sync with what the deployment advertises.
+        assert_eq!(Network::Mainnet.as_str(), "mainnet");
+        assert_eq!(Network::Testnet.as_str(), "testnet");
     }
 }

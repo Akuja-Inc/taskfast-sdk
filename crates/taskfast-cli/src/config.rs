@@ -49,7 +49,17 @@ pub const DEFAULT_CONFIG_PATH: &str = ".taskfast/config.json";
 /// Current on-disk schema version. Bump when a field changes shape in a
 /// way a reader needs to special-case; additive fields don't need a bump
 /// because serde `#[serde(default)]` already handles missing keys.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+///
+/// v2: dropped `api_base` and `network` — both derived from `environment`
+/// at runtime via [`crate::Environment::api_base`] and
+/// [`crate::Environment::network`]. Files at v1 with either key present
+/// hard-error in [`Config::load`] with a migration hint.
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+
+/// Keys removed at schema v2. Loading a file that still carries any of
+/// these triggers [`ConfigError::LegacyFields`] so a stale config never
+/// silently misroutes traffic post-migration.
+const LEGACY_REMOVED_KEYS: &[&str] = &["api_base", "network"];
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -65,6 +75,12 @@ pub enum ConfigError {
         #[source]
         source: serde_json::Error,
     },
+    #[error(
+        "config {path} carries removed key(s) {fields:?} — derived from `environment` since \
+         schema v2. Run `taskfast config migrate` (or remove the keys + bump `schema_version` \
+         to 2 manually) and re-run."
+    )]
+    LegacyFields { path: PathBuf, fields: Vec<String> },
 }
 
 /// On-disk config. Every runtime field is `Option` so the file stays
@@ -81,17 +97,9 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<Environment>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_base: Option<String>,
-
     /// Agent API key. Secret — the file is written `0600`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-
-    /// `mainnet` or `testnet`. Kept as a string rather than a typed enum
-    /// so new Tempo networks don't force a schema bump.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet_address: Option<String>,
@@ -150,6 +158,11 @@ impl Config {
     /// (callers treat absence the same as an empty config). Newer
     /// `schema_version` values log a warning via `tracing::warn!` and
     /// load what they recognise.
+    ///
+    /// Hard-errors with [`ConfigError::LegacyFields`] when the on-disk
+    /// JSON still carries any key removed at the current schema version
+    /// (currently `api_base` and `network`). Stale values would otherwise
+    /// silently outrank the `Environment`-derived defaults.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let src = match fs::read_to_string(path) {
             Ok(s) => s,
@@ -161,7 +174,28 @@ impl Config {
                 });
             }
         };
-        let cfg: Config = serde_json::from_str(&src).map_err(|source| ConfigError::Parse {
+        // Peek raw JSON before strict deserialization so the migration error
+        // wins over a generic parse error and so removed-key detection does
+        // not depend on `Config` carrying the field.
+        let raw: serde_json::Value =
+            serde_json::from_str(&src).map_err(|source| ConfigError::Parse {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        if let Some(obj) = raw.as_object() {
+            let legacy: Vec<String> = LEGACY_REMOVED_KEYS
+                .iter()
+                .filter(|k| obj.contains_key(**k))
+                .map(|k| (*k).to_string())
+                .collect();
+            if !legacy.is_empty() {
+                return Err(ConfigError::LegacyFields {
+                    path: path.to_path_buf(),
+                    fields: legacy,
+                });
+            }
+        }
+        let cfg: Config = serde_json::from_value(raw).map_err(|source| ConfigError::Parse {
             path: path.to_path_buf(),
             source,
         })?;
@@ -291,9 +325,7 @@ mod tests {
         Config {
             schema_version: CURRENT_SCHEMA_VERSION,
             environment: Some(Environment::Local),
-            api_base: Some("http://localhost:4000".into()),
             api_key: Some("am_live_secret".into()),
-            network: Some("testnet".into()),
             wallet_address: Some("0xabc".into()),
             keystore_path: Some(PathBuf::from("/tmp/keystore.json")),
             agent_id: Some("agent_123".into()),
@@ -329,7 +361,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.json");
         let cfg = Config {
-            api_base: Some("http://x".into()),
+            wallet_address: Some("0xabc".into()),
             ..Config::default()
         };
         assert_eq!(cfg.schema_version, 0);
@@ -367,14 +399,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.json");
         let body = r#"{
-            "schema_version": 1,
-            "api_base": "http://x",
+            "schema_version": 2,
+            "wallet_address": "0xabc",
             "future_field": "ignored",
             "another": {"nested": true}
         }"#;
         fs::write(&path, body).unwrap();
         let cfg = Config::load(&path).expect("unknown fields should not fail load");
-        assert_eq!(cfg.api_base.as_deref(), Some("http://x"));
+        assert_eq!(cfg.wallet_address.as_deref(), Some("0xabc"));
     }
 
     #[test]
@@ -382,13 +414,65 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.json");
         let body = format!(
-            r#"{{ "schema_version": {}, "api_base": "http://x" }}"#,
+            r#"{{ "schema_version": {}, "wallet_address": "0xabc" }}"#,
             CURRENT_SCHEMA_VERSION + 5
         );
         fs::write(&path, body).unwrap();
         let cfg = Config::load(&path).expect("newer version still loads");
         assert_eq!(cfg.schema_version, CURRENT_SCHEMA_VERSION + 5);
-        assert_eq!(cfg.api_base.as_deref(), Some("http://x"));
+        assert_eq!(cfg.wallet_address.as_deref(), Some("0xabc"));
+    }
+
+    #[test]
+    fn legacy_api_base_field_hard_errors() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+        let body = r#"{ "schema_version": 1, "api_base": "https://attacker.example" }"#;
+        fs::write(&path, body).unwrap();
+        let err = Config::load(&path).expect_err("legacy api_base must be rejected");
+        let ConfigError::LegacyFields { fields, .. } = err else {
+            panic!("expected LegacyFields, got {err:?}");
+        };
+        assert_eq!(fields, vec!["api_base".to_string()]);
+    }
+
+    #[test]
+    fn legacy_network_field_hard_errors() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+        let body = r#"{ "schema_version": 1, "network": "mainnet" }"#;
+        fs::write(&path, body).unwrap();
+        let err = Config::load(&path).expect_err("legacy network must be rejected");
+        let ConfigError::LegacyFields { fields, .. } = err else {
+            panic!("expected LegacyFields, got {err:?}");
+        };
+        assert_eq!(fields, vec!["network".to_string()]);
+    }
+
+    #[test]
+    fn legacy_error_lists_both_fields_when_present() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+        let body = r#"{ "api_base": "https://x", "network": "testnet" }"#;
+        fs::write(&path, body).unwrap();
+        let err = Config::load(&path).expect_err("both legacy fields must be flagged");
+        let ConfigError::LegacyFields { fields, .. } = err else {
+            panic!("expected LegacyFields, got {err:?}");
+        };
+        assert!(fields.contains(&"api_base".to_string()));
+        assert!(fields.contains(&"network".to_string()));
+    }
+
+    #[test]
+    fn legacy_error_message_names_migration_command() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.json");
+        fs::write(&path, r#"{ "api_base": "https://x" }"#).unwrap();
+        let msg = Config::load(&path).unwrap_err().to_string();
+        assert!(
+            msg.contains("taskfast config migrate"),
+            "remediation hint must name the migrate command: {msg}"
+        );
     }
 
     #[test]

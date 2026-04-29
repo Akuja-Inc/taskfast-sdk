@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::post::{run, Args, AssignmentType, Network};
+use taskfast_cli::cmd::post::{run, Args, AssignmentType};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::{Envelope, Environment};
 
@@ -52,7 +52,6 @@ fn base_args(wallet_address: Option<String>, keystore: Option<String>) -> Args {
         keystore,
         wallet_password_file: None,
         rpc_url: None,
-        network: Network::Testnet,
         yes: false,
     }
 }

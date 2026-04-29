@@ -12,7 +12,7 @@ use tempfile::TempDir;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use taskfast_cli::cmd::init::{run, Args, Network};
+use taskfast_cli::cmd::init::{run, Args};
 use taskfast_cli::cmd::{CmdError, Ctx};
 use taskfast_cli::config::Config;
 use taskfast_cli::{Envelope, Environment};
@@ -37,7 +37,6 @@ fn base_args() -> Args {
         generate_wallet: false,
         wallet_password_file: None,
         keystore_path: None,
-        network: Network::Testnet,
         skip_wallet: false,
         fund: false,
         human_api_key: None,
@@ -128,11 +127,12 @@ async fn byow_happy_path_registers_wallet_and_writes_env_file() {
     assert_eq!(v["data"]["config_file"]["written"], true);
 
     // Config exists and carries the registered address + api key.
+    // `api_base` and `network` are no longer persisted — both derive from
+    // `environment` at runtime.
     let loaded = Config::load(&cfg_path).unwrap();
     assert_eq!(loaded.api_key.as_deref(), Some("test-key"));
     assert_eq!(loaded.wallet_address.as_deref(), Some(BYOW_ADDRESS));
-    assert_eq!(loaded.network.as_deref(), Some("testnet"));
-    assert_eq!(loaded.api_base.as_deref(), Some(server.uri().as_str()));
+    assert_eq!(loaded.environment, Some(Environment::Local));
 }
 
 #[tokio::test]
