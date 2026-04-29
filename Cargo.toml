@@ -40,7 +40,7 @@ alloy-signer-local = { version = "1", features = ["keystore"] }
 alloy-sol-types = "1"
 alloy-consensus = "1"
 alloy-eips = "1"
-rand = "0.8"
+rand = "0.9"
 
 hmac = "0.12"
 sha2 = "0.10"
